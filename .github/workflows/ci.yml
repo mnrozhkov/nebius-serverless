@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, tests, types (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the requires-python floor; 3.12 is .python-version.
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - run: uv sync --locked
+      - name: ruff
+        run: uv run ruff check src tests examples
+      - name: pytest
+        run: uv run pytest -q
+      - name: mypy
+        # Scope: every public module plus tests/typing. Excluded until a
+        # separate cleanup, because they have known errors that are not in
+        # the public signatures: sdk_transport.py (dict-to-proto kwargs,
+        # arg-type/attr-defined), profile.py and output.py.
+        run: >-
+          uv run mypy src/nebius_serverless tests/typing
+          --ignore-missing-imports
+          --exclude '/(output|profile|sdk_transport)\.py$'

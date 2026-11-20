@@ -1,0 +1,3 @@
+# The tests need tests/fakes.py, examples/ and docs/, which the sdist does
+# not ship. Run them from a checkout instead.
+prune tests

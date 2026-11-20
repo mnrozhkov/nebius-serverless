@@ -1,0 +1,6 @@
+schema_version: 1
+kind: job
+image: nvidia/cuda:13.1.1-runtime-ubuntu24.04
+command: ["nvidia-smi"]
+gpu: h100
+timeout: 1h

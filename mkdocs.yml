@@ -1,0 +1,66 @@
+site_name: nebius-serverless
+site_description: Python client for Nebius Serverless AI Jobs and Endpoints
+site_url: https://mnrozhkov.github.io/nebius-serverless/
+repo_url: https://github.com/mnrozhkov/nebius-serverless
+repo_name: mnrozhkov/nebius-serverless
+edit_uri: edit/main/docs/
+copyright: Copyright 2026 Mikhail Rozhkov and Evgeny Zholkovskiy. Apache-2.0.
+
+theme:
+  name: material
+  features:
+    - content.action.edit
+    - content.code.copy
+    - content.tabs.link
+    - navigation.footer
+    - navigation.instant
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+nav:
+  - Home: index.md
+  - Reference: reference.md
+  - Endpoints: endpoints.md
+  - Examples: examples.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+# `mkdocs build --strict` turns each of these into an error.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn

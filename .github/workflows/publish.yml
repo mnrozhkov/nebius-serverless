@@ -1,0 +1,126 @@
+# Publish nebius-serverless on a version tag: TestPyPI, a smoke install
+# from TestPyPI on 3.10 and 3.12, then PyPI.
+#
+# One-time setup (by the PyPI project owner):
+#   - On pypi.org and test.pypi.org, add a trusted publisher for this
+#     repository, workflow publish.yml, environments "pypi" and "testpypi".
+#   - In the GitHub repo settings, create the environments "testpypi" and
+#     "pypi" (add required reviewers to "pypi" to gate the real upload).
+# Release: bump [project].version, then push the
+# tag v<version>, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Check the tag matches pyproject.toml
+        id: version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match version $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: uv sync --locked
+      - run: uv run pytest -q
+      - run: uv build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/nebius-serverless
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  smoke:
+    needs: [build, testpypi]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install from TestPyPI, dependencies from PyPI
+        # --no-deps keeps dependencies off TestPyPI, where anyone can
+        # register a name such as "nebius".
+        run: |
+          uv venv
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if uv pip install --no-deps --no-cache \
+                --index-url https://test.pypi.org/simple/ \
+                "nebius-serverless==$VERSION"; then
+              break
+            fi
+            if [ "$attempt" = 10 ]; then exit 1; fi
+            sleep 30
+          done
+          uv run --no-project python -c "import importlib.metadata as m; print('\n'.join(m.requires('nebius-serverless')))" > requirements.txt
+          cat requirements.txt
+          uv pip install -r requirements.txt
+      - name: Import and dry-run without credentials
+        run: |
+          uv run --no-project python - <<'EOF'
+          import os
+
+          import nebius_serverless as ns
+
+          assert ns.__version__ == os.environ["VERSION"], ns.__version__
+          spec = ns.JobSpec(
+              ["nvidia-smi"],
+              image="nvidia/cuda:13.1.1-runtime-ubuntu24.04",
+              gpu="h100",
+              timeout="1h",
+          )
+          described = spec.create(
+              dry_run=True, region="eu-north1", project="project-test-0001"
+          )
+          assert described["gpu"] == "h100", described
+          print("ok", ns.__version__)
+          EOF
+
+  pypi:
+    needs: smoke
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/nebius-serverless
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
