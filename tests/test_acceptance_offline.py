@@ -56,7 +56,7 @@ def test_readme_points_at_the_contract() -> None:
     assert "job.cancel()" in text
     assert "ns.JobSpec(" in text
     assert "ns.jobs.get" in text
-    assert "examples/job_quickstart.py" in text
+    assert "examples/quickstarts/job_quickstart.py" in text
     lowered = text.lower()
     assert "local backend" not in lowered
     assert "live nebius run" not in lowered
@@ -81,7 +81,7 @@ def test_nvidia_smi_matches_the_readme_and_the_yaml() -> None:
         timeout="1h",
     )
     from_file = ns.JobSpec.from_yaml(
-        EXAMPLES / "from_yaml" / "nvidia_smi.yaml",
+        EXAMPLES / "quickstarts" / "job_quickstart.yaml",
     )
     python_request = _describe(job)
     yaml_request = _describe(from_file)
@@ -129,17 +129,17 @@ def test_parallel_jobs_axolotl_sweep_recipe(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     cfg_05b = (
-        EXAMPLES / "parallel_jobs" / "configs" / "qwen_0_5b.yaml"
+        EXAMPLES / "training" / "axolotl-sweep" / "configs" / "qwen_0_5b.yaml"
     ).read_text(encoding="utf-8")
     cfg_15b = (
-        EXAMPLES / "parallel_jobs" / "configs" / "qwen_1_5b.yaml"
+        EXAMPLES / "training" / "axolotl-sweep" / "configs" / "qwen_1_5b.yaml"
     ).read_text(encoding="utf-8")
     assert "base_model: Qwen/Qwen2.5-0.5B" in cfg_05b
     assert "output_dir: /workspace/output" in cfg_05b
     assert "base_model: Qwen/Qwen2.5-1.5B" in cfg_15b
     assert "output_dir: /workspace/output" in cfg_15b
 
-    module = _load(EXAMPLES / "parallel_jobs" / "axolotl_sweep.py")
+    module = _load(EXAMPLES / "training" / "axolotl-sweep" / "sweep.py")
     expected = (
         (
             "axolotl-qwen-0.5b",
@@ -231,9 +231,8 @@ def test_parallel_jobs_axolotl_sweep_recipe(
 
 
 def test_axolotl_finetuning_recipe() -> None:
-    config_text = (EXAMPLES / "finetuning" / "config.yaml").read_text(
-        encoding="utf-8"
-    )
+    config = EXAMPLES / "training" / "axolotl-finetune" / "config.yaml"
+    config_text = config.read_text(encoding="utf-8")
     assert "base_model: Qwen/Qwen2.5-0.5B" in config_text
     assert "adapter: qlora" in config_text
     assert "output_dir: /workspace/output" in config_text
@@ -383,7 +382,7 @@ def _install(
 
 
 def _matrix() -> ModuleType:
-    return _load(EXAMPLES / "batch" / "matrix_multiply.py")
+    return _load(EXAMPLES / "batch" / "matrix-multiply" / "matrix_multiply.py")
 
 
 def test_matrix_import_is_idle(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -401,7 +400,8 @@ def test_matrix_import_is_idle(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _matrix()
     assert calls == []
     assert "torch" not in sys.modules
-    tree = ast.parse((EXAMPLES / "batch" / "matrix_multiply.py").read_text())
+    script = EXAMPLES / "batch" / "matrix-multiply" / "matrix_multiply.py"
+    tree = ast.parse(script.read_text())
     imported: list[str | None] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

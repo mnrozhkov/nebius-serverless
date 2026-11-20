@@ -162,10 +162,10 @@ def test_a_restart_count_the_cli_cannot_say_is_noted() -> None:
 
 
 def test_the_printer_and_the_flag_map_agree() -> None:
-    docs = Path(__file__).resolve().parents[1] / "docs" / "reference.md"
+    root = Path(__file__).resolve().parents[1]
+    docs = root / "docs" / "reference" / "cli-api-map.md"
     text = docs.read_text(encoding="utf-8")
-    start = text.index("\n## CLI and API map\n")
-    section = text[start : text.index("\n## ", start + 1)]
+    section = text[: text.index("\n## Commands\n")]
     rows = [line for line in section.splitlines() if line.startswith("| `")]
     for argument, flag in FLAGS.items():
         row = next(r for r in rows if f"`{argument}=" in r.split(" | ")[0])

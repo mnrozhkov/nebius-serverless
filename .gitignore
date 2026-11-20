@@ -10,3 +10,4 @@ dist/
 .scratch/
 .DS_Store
 site/
+.cache/

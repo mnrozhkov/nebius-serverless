@@ -1,119 +1,10 @@
 # Endpoints
 
-Reference for the endpoints surface of `nebius_serverless`. The jobs surface is in [reference.md](reference.md).
+Reference for the endpoints surface of `nebius_serverless`. The jobs surface is in [Jobs](jobs.md).
 
 An endpoint is a container that stays up and answers on a managed URL. A job runs a command and finishes. Creating an endpoint allocates the machine, and it bills while it runs, until it is stopped or deleted. Closing the process does neither.
 
-Import the package as `ns`. Machine selection (`gpu`, `cpu`), pricing, volumes, env handling, and the error types are the same as for [JobSpec](reference.md#jobspec).
-
-## Examples
-
-### Serve an image
-
-`command` is optional. Omit it to keep the image entrypoint. Pass a list of strings to override it, with the same quoting rules as `JobSpec`.
-
-```python
-import nebius_serverless as ns
-
-spec = ns.EndpointSpec(
-    image="vllm/vllm-openai:v0.19.1",
-    command=[
-        "bash",
-        "-c",
-        "python3 -m vllm.entrypoints.openai.api_server "
-        "--model Qwen/Qwen3-0.6B --host 0.0.0.0 --port 8000",
-    ],
-    gpu="h100",
-    port=8000,
-    disk="500Gi",
-    pricing="spot",
-    name="qwen-tiny",
-)
-print(spec.create(dry_run=True))
-
-endpoint = spec.create()
-print(endpoint.id, endpoint.token)
-record = endpoint.wait()
-print(endpoint.url, record["status"]["state"])
-```
-
-Endpoints require a bearer token by default (`auth="token"`). `endpoint.token` is the token sent on create. Without `token=`, the client generates a random token for each create, as `nebius ai endpoint create --auth token` does, and prints a notice. `endpoints.get` leaves the token out of `record`; `endpoint.reveal_token()` fetches it from Nebius again, which works for anyone allowed to read the endpoint. For a token you manage yourself, use `token_secret` (below). `endpoint.url` is the managed `https://` URL. `wait` returns when that URL is present, or when the endpoint has stopped or failed. `RUNNING` means the platform workload is up. It does not mean the model answers yet. Poll the application's own route before sending traffic.
-
-Callers send HTTP themselves. This client does not wrap inference.
-
-```python
-import urllib.request
-
-request = urllib.request.Request(
-    endpoint.url.rstrip("/") + "/v1/models",
-    headers={"Authorization": f"Bearer {endpoint.token}"},
-)
-with urllib.request.urlopen(request) as response:
-    print(response.status)
-```
-
-For production, keep the token in MysteryBox. Create a secret whose payload has `AUTH_TOKEN`, then pass its id. No token is generated, `endpoint.token` is `None`, and clients read the token from MysteryBox:
-
-```python
-spec = ns.EndpointSpec(
-    image="vllm/vllm-openai:v0.19.1",
-    gpu="h100",
-    port=8000,
-    token_secret="mbsec-...",
-)
-```
-
-`auth="none"` makes a public URL: anyone who has it can call the endpoint, and you pay for it. Use it only on purpose.
-
-Delete when the endpoint should stop billing:
-
-```python
-endpoint.delete()
-```
-
-The same recipe as YAML:
-
-```yaml
-schema_version: 1
-kind: endpoint
-image: vllm/vllm-openai:v0.19.1
-command:
-  - bash
-  - -c
-  - python3 -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-0.6B --host 0.0.0.0 --port 8000
-gpu: h100
-port: 8000
-disk: 500Gi
-pricing: spot
-name: qwen-tiny
-```
-
-```python
-spec = ns.EndpointSpec.from_yaml("endpoint.yaml")
-print(spec.create(dry_run=True))
-```
-
-### Reload a saved id
-
-`endpoint.id` is the handle. `endpoints.get` performs one get and does not create again. `token` on a reloaded endpoint is `None` until `reveal_token()` fetches it.
-
-```python
-saved_id = endpoint.id
-loaded = ns.endpoints.get(saved_id)
-print(loaded.status, loaded.url)
-```
-
-### Inside an event loop
-
-```python
-endpoint = await spec.create_async()
-record = await endpoint.wait_async()
-await endpoint.delete_async()
-```
-
-Calling `spec.create()` from inside a running event loop raises `ValidationError` and names `create_async`.
-
-A runnable version of this recipe, which also polls `/v1/models`, sends one chat request, and deletes the endpoint in `finally`, is [`examples/endpoint_quickstart.py`](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/endpoint_quickstart.py). The YAML is [`examples/from_yaml/vllm_endpoint.yaml`](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/from_yaml/vllm_endpoint.yaml).
+Import the package as `ns`. Machine selection (`gpu`, `cpu`), pricing, volumes, env handling, and the error types are the same as for [JobSpec](jobs.md#jobspec).
 
 ## Contract
 
@@ -129,7 +20,7 @@ Synchronous methods are the script API. Inside a running event loop they raise `
 
 This package does not stream endpoint logs. Log access stays on the CLI and the web console.
 
-`create`, `get`, `wait`, `delete`, and `endpoints.get`, plus their awaited twins, print progress on stderr the same way as the job calls ([Progress and diagnostics](reference.md#progress-and-diagnostics)). `wait` ends with the URL under the `RUNNING` line. `quiet=True` is keyword-only and suppresses progress for that call only. `create(dry_run=True)` prints nothing.
+`create`, `get`, `wait`, `delete`, and `endpoints.get`, plus their awaited twins, print progress on stderr the same way as the job calls ([Progress, logs, and diagnostics](../guides/progress.md)). `wait` ends with the URL under the `RUNNING` line. `quiet=True` is keyword-only and suppresses progress for that call only. `create(dry_run=True)` prints nothing.
 
 ### `EndpointSpec`
 
@@ -169,7 +60,7 @@ ns.EndpointSpec(
 | `image` | yes | `name:tag` or `registry/path@sha256:<64 hex>`. Sent unchanged. The client does not resolve a tag to a digest. |
 | `port` | one of | One HTTP container port, an integer from 1 to 65535. The platform serves it at a managed `https://` URL. Shortcut for `ports=[port]`. |
 | `ports` | one of | Several ports, in the CLI's `--container-port` syntax: an int is an HTTP container port, and a string is `HOST[:CONTAINER][/http\|tcp\|udp]`, for example `[8000, "6379/tcp", "80:8080"]`. The protocol defaults to http and is case-insensitive. An HTTP port gets an `https://` URL, a TCP port a `tls://HOST:443` URL, and a UDP port no managed URL. Pass exactly one of `port` and `ports`. A repeated container port and protocol raises `ValidationError`. Token auth (the default) needs exactly one port, and it must be HTTP: Nebius rejects an extra TCP or UDP port behind its auth proxy (checked live). Other port sets need `auth="none"`. |
-| `gpu` | no | GPU selector `MODEL[:COUNT]`, such as `"h100"`; Nebius picks the platform and preset. See [Machine selection](reference.md#machine-selection). |
+| `gpu` | no | GPU selector `MODEL[:COUNT]`, such as `"h100"`; Nebius picks the platform and preset. See [Machine selection](../guides/machines.md). |
 | `cpu` | no | CPU selector `FAMILY:VCPUS`, such as `"amd:16"`. Excludes `gpu`. |
 | `platform` | no | Explicit platform id. Excludes `gpu` and `cpu`. |
 | `preset` | no | Explicit preset id. When omitted, the client sends the minimal preset for the chosen platform. An unknown platform id requires `preset`. |
@@ -224,7 +115,7 @@ The description includes `image`, `command` and `args` when a command was set, `
 
 An optional `transport=` keyword replaces the Nebius SDK client. Tests use it. Scripts leave it unset.
 
-`idempotency_key=` works as for jobs ([reference](reference.md#jobspeccreate)). With a key you pass, token auth needs `token=` or `token_secret=`: a token generated in another process would differ, so a reconnected endpoint would not match it.
+`idempotency_key=` works as for jobs ([`JobSpec.create`](jobs.md#jobspeccreate)). With a key you pass, token auth needs `token=` or `token_secret=`: a token generated in another process would differ, so a reconnected endpoint would not match it.
 
 ### `EndpointSpec.to_cli`
 
@@ -232,7 +123,7 @@ An optional `transport=` keyword replaces the Nebius SDK client. Tests use it. S
 spec.to_cli(*, project=None) -> str
 ```
 
-The `nebius ai endpoint create` command for this recipe, as for [`JobSpec.to_cli`](reference.md#jobspecto_cli): `--container-port` per port, `--auth`, and `--token-secret` by id. A `token=` value is never printed; a `#` note says to add `--token` yourself.
+The `nebius ai endpoint create` command for this recipe, as for [`JobSpec.to_cli`](jobs.md#jobspecto_cli): `--container-port` per port, `--auth`, and `--token-secret` by id. A `token=` value is never printed; a `#` note says to add `--token` yourself.
 
 ### `EndpointSpec.create_async`
 
@@ -371,23 +262,6 @@ await ns.endpoints.get_async(endpoint_id, *, profile=None, project=None, quiet=F
 ```
 
 Same fetch as `endpoints.get`.
-
-## Errors
-
-Every error is an `Error`, the same types as [reference.md](reference.md#errors). The endpoint id is stored on `resource_id` when it is known, so existing handlers see a resource id. Get and delete failures include that id in the text. `operation` is `EndpointSpec` for constructor errors and the method name otherwise. `recovery` names `endpoints.get` and `delete` instead of `jobs.get` and `cancel`. Text does not include env values or tokens.
-
-| Type | When |
-| --- | --- |
-| `ValidationError` | Bad command, image, port, auth, machine selector, YAML, a create Nebius rejected (with its code and reason), missing project or region, or a sync call inside a running event loop. |
-| `UnsupportedFeature` | Spot on CPU, and the excluded shapes in the next section. |
-| `AccessError` | Authentication or permission failure from the SDK. |
-| `CapacityError` | The API rejected the endpoint for quota or capacity. |
-| `TransportError` | The call failed and there is no reason to think create was accepted. |
-| `SubmissionUncertain` | Create may have been accepted and the id is unknown, after 3 tries with one idempotency key. `idempotency_key` holds it; a create with that key and the same recipe returns the endpoint Nebius made, if any. |
-| `KeyConflict` | The API reports an existing resource and its id is known. |
-| `WaitTimeout` | The local wait ended before a final state. The endpoint is unchanged and may still be billing; `wait()` again or `delete()`. |
-
-Closing the process, a local `WaitTimeout`, and cancelling an awaited twin do not delete the endpoint.
 
 ## Out of scope
 

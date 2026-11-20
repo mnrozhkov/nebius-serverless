@@ -695,7 +695,8 @@ def test_quickstart_matches_the_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
 
     root = Path(__file__).resolve().parents[1] / "examples"
     spec = importlib.util.spec_from_file_location(
-        "endpoint_quickstart", root / "endpoint_quickstart.py"
+        "endpoint_quickstart",
+        root / "inference" / "vllm-endpoint" / "serve.py",
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -713,7 +714,7 @@ def test_quickstart_matches_the_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(SystemExit):
         module.main()
     from_file = ns.EndpointSpec.from_yaml(
-        root / "from_yaml" / "vllm_endpoint.yaml"
+        root / "inference" / "vllm-endpoint" / "endpoint.yaml"
     )
 
     def described(endpoint: ns.EndpointSpec) -> object:
@@ -733,7 +734,8 @@ def test_quickstart_stops_on_error_even_with_a_url(
 
     root = Path(__file__).resolve().parents[1] / "examples"
     spec = importlib.util.spec_from_file_location(
-        "endpoint_quickstart_error", root / "endpoint_quickstart.py"
+        "endpoint_quickstart_error",
+        root / "inference" / "vllm-endpoint" / "serve.py",
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

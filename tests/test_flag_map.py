@@ -1,4 +1,4 @@
-"""docs/reference.md maps every recipe argument to a CLI flag and API field."""
+"""The CLI and API map gives every recipe argument a flag and an API field."""
 
 import inspect
 import re
@@ -8,15 +8,16 @@ import pytest
 
 import nebius_serverless as ns
 
-REFERENCE = Path(__file__).resolve().parents[1] / "docs" / "reference.md"
+ROOT = Path(__file__).resolve().parents[1]
+REFERENCE = ROOT / "docs" / "reference" / "cli-api-map.md"
 ARGUMENT = re.compile(r"`(\w+)=")
 
 
 def _map_section() -> str:
     text = REFERENCE.read_text(encoding="utf-8")
-    start = text.index("\n## CLI and API map\n")
-    end = text.index("\n## ", start + 1)
-    return text[start:end]
+    start = text.index("\n## Arguments\n")
+    end = text.index("\n## Commands\n", start)
+    return text[:end]
 
 
 def mapped_arguments(section: str) -> set[str]:

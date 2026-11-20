@@ -17,9 +17,28 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCANNED = ("src", "tests", "examples", "docs", "README.md")
+SCANNED = (
+    "src",
+    "tests",
+    "examples",
+    "docs",
+    "overrides",
+    "README.md",
+    "mkdocs.yml",
+)
 TEXT_SUFFIXES = frozenset(
-    {".py", ".md", ".ipynb", ".yaml", ".yml", ".toml", ".txt", ".json"}
+    {
+        ".py",
+        ".md",
+        ".ipynb",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".txt",
+        ".json",
+        ".sh",
+        ".html",
+    }
 )
 RESOURCE_ID = re.compile(r"\b([a-z]+)-e00[a-z0-9]{12,}\b")
 TUNNEL_HOST = re.compile(r"\bport\d+-[a-z0-9]{8,}\.tunnel\.applications\.")

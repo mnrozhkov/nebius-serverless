@@ -1,44 +1,30 @@
 # nebius-serverless
 
-Python client for Nebius Serverless AI Jobs and Endpoints.
+[![PyPI](https://img.shields.io/pypi/v/nebius-serverless)](https://pypi.org/project/nebius-serverless/)
+[![Python](https://img.shields.io/pypi/pyversions/nebius-serverless)](https://pypi.org/project/nebius-serverless/)
+[![Docs](https://img.shields.io/badge/docs-mnrozhkov.github.io-3f51b5)](https://mnrozhkov.github.io/nebius-serverless/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/mnrozhkov/nebius-serverless/blob/main/LICENSE)
 
-> **Community project — not an official Nebius SDK.** For the official SDK, see [github.com/nebius/pysdk](https://github.com/nebius/pysdk).
+Unofficial Python client for Nebius Serverless AI Jobs and Endpoints. Describe a container workload in Python or YAML, create it on a Nebius GPU or CPU, and wait for it from a script, a notebook, or CI.
+
+> **Unofficial package.** Not an official Nebius product, and Nebius does not support it. For the official Python SDK, see [github.com/nebius/pysdk](https://github.com/nebius/pysdk). Report problems in this project's [GitHub issues](https://github.com/mnrozhkov/nebius-serverless/issues).
 >
 > **Beta.** 0.x releases may change the API.
 
-## Installation
-
-Python 3.10 or later:
+<!-- --8<-- [start:install] -->
+## Install
 
 ```bash
 pip install nebius-serverless
 ```
 
-It depends on `nebius>=0.6.43,<0.7`, `PyYAML>=6`, and `rich>=13`. The import name is `nebius_serverless`.
+Python 3.10 or later. It depends on `nebius>=0.6.43,<0.7`, `PyYAML>=6`, and `rich>=13`. The import name is `nebius_serverless`.
 
-To work on the client or run the examples, use [uv](https://docs.astral.sh/uv/) from a checkout of this repo:
+`create()` and `jobs.get()` need a Nebius CLI profile ([`nebius profile create`](https://docs.nebius.com/cli/configure)), or in CI a service account or `NEBIUS_IAM_TOKEN` ([Run in CI](https://mnrozhkov.github.io/nebius-serverless/guides/ci/)). `ns.whoami()` shows the account, and the project and region `create()` will use, without creating anything.
+<!-- --8<-- [end:install] -->
 
-```bash
-uv sync
-```
-
-`uv sync` installs this package with the locked dependencies (`nebius==0.6.43`, `PyYAML==6.0.3`, `rich==15.0.0`) and the locked test and lint tools.
-
-Run the client and the example scripts with `uv run`:
-
-```bash
-uv run python
-uv run python examples/job_quickstart.py
-uv run python examples/from_yaml/nvidia_smi_yaml.py --config examples/from_yaml/nvidia_smi.yaml
-```
-
-`ns.whoami()` shows the account and the project and region `create()` will use. A Nebius CLI profile, or for CI a service account or `NEBIUS_IAM_TOKEN` (see [`ns.configure`](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/reference.md#configure)), is required for `create()` and `jobs.get()`. Configure one with [`nebius profile create`](https://docs.nebius.com/cli/configure). The active profile supplies the project id. When that profile does not name a region, `create()` reads it from the project (`spec.region` in the Nebius Python SDK). `profile=`, `project=`, and `region=` on `JobSpec` select or override them. Constructing a `JobSpec` does not read that profile.
-
-`gpu="h100"` (or `"h100:8"`, or `cpu="amd:16"`) asks Nebius for a machine, and Nebius picks the platform and preset in the project's region; see [Machine selection](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/reference.md#machine-selection). Logs are `nebius ai job logs <id>`. This library does not stream logs.
-
-`create()`, `get()`, `wait()`, and `cancel()` print progress on stderr. `quiet=True` suppresses progress for that call only. `ns.configure_logging()` turns diagnostics on separately, and `ns.diagnostics()` returns local metadata, including whether stderr is `plain` or `interactive`. A local timeout does not cancel the remote job.
-
-[`examples/job_quickstart.py`](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/job_quickstart.py) is the recipe below. [`examples/from_yaml/nvidia_smi_yaml.py`](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/from_yaml/nvidia_smi_yaml.py) `--config` loads [`examples/from_yaml/nvidia_smi.yaml`](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/from_yaml/nvidia_smi.yaml). The other example settings live in the Python file.
+<!-- --8<-- [start:job] -->
+## Run a job
 
 ```python
 import nebius_serverless as ns
@@ -54,29 +40,13 @@ job.wait()
 job.display()
 ```
 
-`quiet=True` on `create` and `wait` suppresses progress for those calls. Stdout still prints the id and the final state. The same pattern is in [Quiet progress](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/examples.md#quiet-progress):
+`gpu="h100"` asks Nebius for one H100, and Nebius picks the platform and preset in the project's region. `create()` returns once Nebius has accepted the job. `job.wait()` polls until the job ends and prints each new state. `job.get()` fetches once, `job.cancel()` requests cancellation, and `ns.jobs.get(id)` reloads a job from a saved id. `create(dry_run=True)` returns the request and creates nothing. The same recipe loads from YAML with `ns.JobSpec.from_yaml("job.yaml")`. Logs are `nebius ai job logs <id>`: this library does not stream them.
+<!-- --8<-- [end:job] -->
 
-```python
-job = spec.create(quiet=True)
-print(job.id)
-record = job.wait(quiet=True)
-print(job.id, record["status"]["state"])
-```
+<!-- --8<-- [start:endpoint] -->
+## Serve an endpoint
 
-`job.get()`, `job.cancel()`, and `ns.jobs.get(id)` are in [docs/examples.md](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/examples.md).
-
-The same recipe can be loaded from YAML:
-
-```python
-spec = ns.JobSpec.from_yaml("job.yaml")
-job = spec.create()
-```
-
-`create(dry_run=True)` returns the create request and does not create a job. The example scripts call `create()` and use the active profile.
-
-## Endpoints
-
-An endpoint is a container that stays up and answers on a managed `https://` URL. It bills for compute while it runs, until you stop or delete it. `ns.EndpointSpec` is the recipe, `Endpoint` is the created endpoint, and `ns.endpoints.get(id)` reloads one. GPU aliases, pricing, volumes, env, profiles, progress, and errors work as they do for jobs.
+An endpoint is a container that stays up and answers on a managed `https://` URL. It bills for compute while it runs, until you stop or delete it.
 
 ```python
 spec = ns.EndpointSpec(
@@ -91,15 +61,31 @@ print(endpoint.url, endpoint.token)
 endpoint.delete()
 ```
 
-`command` is optional and keeps the image entrypoint when omitted. Endpoints require a bearer token by default (`auth="token"`): callers send `Authorization: Bearer {endpoint.token}`. Without `token=`, a random token is generated on create and kept in `endpoint.token`; `endpoint.reveal_token()` fetches it again later, for example on a handle from `ns.endpoints.get(id)`. For production, keep it in MysteryBox with `token_secret=`. `auth="none"` makes a public URL that anyone who has it can call, at your cost. `EndpointSpec.from_yaml` loads a `kind: endpoint` document. [`examples/endpoint_quickstart.py`](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/endpoint_quickstart.py) serves a model, calls it, and deletes it. The full surface is in [docs/endpoints.md](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/endpoints.md).
+Endpoints require a bearer token by default: callers send `Authorization: Bearer {endpoint.token}`. A random token is generated on create, and `endpoint.reveal_token()` fetches it again later. For production, keep it in MysteryBox with `token_secret=`. `auth="none"` makes a public URL that anyone who has it can call, at your cost.
+<!-- --8<-- [end:endpoint] -->
 
 ## Documentation
 
-The documentation site is [mnrozhkov.github.io/nebius-serverless](https://mnrozhkov.github.io/nebius-serverless/). The same pages are in `docs/`:
+The documentation site is [mnrozhkov.github.io/nebius-serverless](https://mnrozhkov.github.io/nebius-serverless/):
 
-- [docs/reference.md](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/reference.md) — classes and methods on the current jobs surface
-- [docs/examples.md](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/examples.md) — worked examples for the scripts under `examples/`
-- [docs/endpoints.md](https://github.com/mnrozhkov/nebius-serverless/blob/main/docs/endpoints.md) — `EndpointSpec`, `Endpoint`, and `endpoints`
+- [🚀 Quickstarts](https://mnrozhkov.github.io/nebius-serverless/quickstarts/): install, first job, first endpoint, notebooks
+- [🏋️ Training](https://mnrozhkov.github.io/nebius-serverless/training/): fine-tuning with Axolotl, a parallel sweep
+- [⚡ Inference](https://mnrozhkov.github.io/nebius-serverless/inference/): serve a model with vLLM
+- [📖 Guides](https://mnrozhkov.github.io/nebius-serverless/guides/): machines, storage, secrets, retries, CI, YAML and the CLI
+- [📚 Reference](https://mnrozhkov.github.io/nebius-serverless/reference/): every class, function, and error
+
+The runnable scripts are in [`examples/`](https://github.com/mnrozhkov/nebius-serverless/tree/main/examples), and the pages themselves in [`docs/`](https://github.com/mnrozhkov/nebius-serverless/tree/main/docs).
+
+## Work on the client
+
+From a checkout, [uv](https://docs.astral.sh/uv/) installs the package with the locked dependencies (`nebius==0.6.43`, `PyYAML==6.0.3`, `rich==15.0.0`) and the test and lint tools:
+
+```bash
+uv sync
+uv run pytest
+uv run python examples/quickstarts/job_quickstart.py
+uv run --group docs mkdocs serve   # the documentation site, locally
+```
 
 ## License
 

@@ -1,7 +1,7 @@
 """Serve a small model with vLLM on an endpoint, call it, then delete it.
 
 ``gpu="h100"`` with token auth. Uses the active Nebius profile. The same
-recipe as YAML is ``examples/from_yaml/vllm_endpoint.yaml``.
+recipe as YAML is ``endpoint.yaml`` in this folder.
 
 The endpoint bills for compute while it runs. This script deletes it in
 ``finally``, including when a step fails or you press Ctrl-C.

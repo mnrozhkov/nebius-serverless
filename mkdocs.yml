@@ -1,62 +1,177 @@
 site_name: nebius-serverless
-site_description: Python client for Nebius Serverless AI Jobs and Endpoints
+site_description: Unofficial Python client for Nebius Serverless AI Jobs and Endpoints
 site_url: https://mnrozhkov.github.io/nebius-serverless/
 repo_url: https://github.com/mnrozhkov/nebius-serverless
 repo_name: mnrozhkov/nebius-serverless
 edit_uri: edit/main/docs/
-copyright: Copyright 2026 Mikhail Rozhkov and Evgeny Zholkovskiy. Apache-2.0.
+copyright: >-
+  Copyright 2026 Mikhail Rozhkov and Evgeny Zholkovskiy. Apache-2.0.
+  Unofficial package: not an official Nebius product.
+
+# Page includes for pymdownx.snippets; not pages themselves.
+exclude_docs: |
+  includes/
 
 theme:
   name: material
-  features:
-    - content.action.edit
-    - content.code.copy
-    - content.tabs.link
-    - navigation.footer
-    - navigation.instant
-    - navigation.tabs
-    - navigation.top
-    - search.highlight
-    - search.suggest
-    - toc.follow
+  custom_dir: overrides  # the "Unofficial package" announcement bar
   icon:
+    logo: material/rocket-launch-outline
     repo: fontawesome/brands/github
+  font:
+    text: Roboto
+    code: Roboto Mono
+  # Same palette as squidfunk.github.io/mkdocs-material: indigo, a black
+  # header in dark mode, and a toggle that starts from the system setting.
   palette:
     - media: "(prefers-color-scheme)"
       toggle:
-        icon: material/brightness-auto
+        icon: material/link
         name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: indigo
+      accent: indigo
       toggle:
-        icon: material/brightness-7
+        icon: material/toggle-switch
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: black
+      accent: indigo
       toggle:
-        icon: material/brightness-4
+        icon: material/toggle-switch-off
         name: Switch to system preference
+  features:
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - content.footnote.tooltips
+    - content.tabs.link
+    - content.tooltips
+    - navigation.footer
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.path
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
 
 nav:
   - Home: index.md
-  - Reference: reference.md
-  - Endpoints: endpoints.md
-  - Examples: examples.md
+  - 🚀 Quickstarts:
+      - quickstarts/index.md
+      - Install and authenticate: quickstarts/install.md
+      - First job: quickstarts/first-job.md
+      - First endpoint: quickstarts/first-endpoint.md
+      - Notebooks: quickstarts/notebooks.md
+  - 🏋️ Training:
+      - training/index.md
+      - Fine-tune with Axolotl: training/axolotl-finetune.md
+      - Parallel fine-tuning sweep: training/axolotl-sweep.md
+  - ⚡ Inference:
+      - inference/index.md
+      - Serve a model with vLLM: inference/vllm-endpoint.md
+  - 📖 Guides:
+      - guides/index.md
+      - Choose a machine and pricing: guides/machines.md
+      - Storage and files: guides/storage.md
+      - Secrets and private images: guides/secrets.md
+      - Reload, cancel, and retry safely: guides/reload-cancel.md
+      - Run many jobs at once: guides/many-jobs.md
+      - Progress, logs, and diagnostics: guides/progress.md
+      - Async and notebooks: guides/async.md
+      - Run in CI: guides/ci.md
+      - YAML and the CLI: guides/yaml-cli.md
+  - 📚 Reference:
+      - reference/index.md
+      - Jobs: reference/jobs.md
+      - Endpoints: reference/endpoints.md
+      - Session and auth: reference/session.md
+      - CLI and API map: reference/cli-api-map.md
+      - Errors: reference/errors.md
+
+plugins:
+  - search:
+      # Also split on dots and camel case, so "create" finds JobSpec.create.
+      separator: '[\s​\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  # CI only, as on the theme's own site: the deployed site serves Google
+  # Fonts and other external assets itself (privacy), and has link-preview
+  # cards (social, which needs Cairo). Local builds skip both.
+  - group:
+      enabled: !ENV [CI, false]
+      plugins:
+        - privacy
+        - social:
+            cards_layout: default/variant
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mnrozhkov/nebius-serverless
+      name: Source on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/nebius-serverless/
+      name: nebius-serverless on PyPI
 
 markdown_extensions:
+  - abbr
   - admonition
   - attr_list
+  - def_list
+  - footnotes
   - md_in_html
   - tables
   - toc:
       permalink: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
   - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
   - pymdownx.highlight:
       anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.superfences
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      normalize_issue_symbols: true
+      repo_url_shorthand: true
+      user: mnrozhkov
+      repo: nebius-serverless
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  # Pages include example READMEs and real source files, so the site shows
+  # what the tests run. A missing file fails the build.
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+      auto_append:
+        - docs/includes/abbreviations.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
+      combine_header_slug: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
 
 # `mkdocs build --strict` turns each of these into an error.
 validation:

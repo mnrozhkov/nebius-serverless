@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nebius-serverless"
 version = "0.1.0"
-description = "Unofficial community Python client for Nebius Serverless AI Jobs and Endpoints"
+description = "Unofficial Python client for Nebius Serverless AI Jobs and Endpoints"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -54,9 +54,10 @@ dev = [
     "typing-extensions==4.16.0",
 ]
 # The docs site (mkdocs.yml). mkdocs-material needs Python 3.11 or later;
+# [imaging] is for social cards, which need Cairo and are built in CI only;
 # the docs workflow builds on 3.12.
 docs = [
-    "mkdocs-material==9.8.2; python_version >= '3.11'",
+    "mkdocs-material[imaging]==9.8.2; python_version >= '3.11'",
 ]
 
 [tool.ruff]

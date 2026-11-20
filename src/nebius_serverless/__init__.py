@@ -1,4 +1,7 @@
-"""Client for Nebius Serverless AI Jobs and Endpoints.
+"""Unofficial client for Nebius Serverless AI Jobs and Endpoints.
+
+Not an official Nebius product, and Nebius does not support it. The
+official Python SDK is https://github.com/nebius/pysdk.
 
 ``JobSpec`` and ``EndpointSpec`` are local recipes. ``create()`` on one
 returns a ``Job`` or an ``Endpoint``: the cloud resource with that id.

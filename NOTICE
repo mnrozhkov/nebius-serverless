@@ -3,4 +3,5 @@ Copyright 2026 Mikhail Rozhkov and Evgeny Zholkovskiy
 
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-This is a community project, not an official Nebius product.
+Unofficial package. Not an official Nebius product, and Nebius does not
+support it. For the official Python SDK, see https://github.com/nebius/pysdk.
