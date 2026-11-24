@@ -68,7 +68,7 @@ Endpoints require a bearer token by default: callers send `Authorization: Bearer
 
 The documentation site is [mnrozhkov.github.io/nebius-serverless](https://mnrozhkov.github.io/nebius-serverless/):
 
-- [🚀 Quickstarts](https://mnrozhkov.github.io/nebius-serverless/quickstarts/): install, first job, first endpoint, notebooks
+- [🚀 Quickstarts](https://mnrozhkov.github.io/nebius-serverless/quickstarts/): install, first job, first endpoint, first image, notebooks
 - [🏋️ Training](https://mnrozhkov.github.io/nebius-serverless/training/): fine-tuning with Axolotl, a parallel sweep
 - [⚡ Inference](https://mnrozhkov.github.io/nebius-serverless/inference/): serve a model with vLLM
 - [📖 Guides](https://mnrozhkov.github.io/nebius-serverless/guides/): machines, storage, secrets, retries, CI, YAML and the CLI

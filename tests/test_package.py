@@ -13,6 +13,7 @@ def test_version_and_section_10_errors() -> None:
     assert issubclass(ns.ValidationError, ns.Error)
     for name in (
         "AccessError",
+        "BuildFailed",
         "CapacityError",
         "KeyConflict",
         "SubmissionUncertain",
@@ -25,10 +26,12 @@ def test_version_and_section_10_errors() -> None:
 def test_public_surface() -> None:
     assert ns.__all__ == [
         "AccessError",
+        "BuildFailed",
         "CapacityError",
         "Endpoint",
         "EndpointSpec",
         "Error",
+        "Image",
         "Job",
         "JobSpec",
         "KeyConflict",

@@ -15,6 +15,7 @@ from .endpoint import Endpoint, endpoints
 from .endpoint_spec import EndpointSpec
 from .errors import (
     AccessError,
+    BuildFailed,
     CapacityError,
     Error,
     KeyConflict,
@@ -24,6 +25,7 @@ from .errors import (
     ValidationError,
     WaitTimeout,
 )
+from .image import Image
 from .job import Job, jobs
 from .job_spec import JobSpec
 from .log import configure_logging, diagnostics
@@ -31,10 +33,12 @@ from .session import close, configure
 
 __all__ = [
     "AccessError",
+    "BuildFailed",
     "CapacityError",
     "Endpoint",
     "EndpointSpec",
     "Error",
+    "Image",
     "Job",
     "JobSpec",
     "KeyConflict",

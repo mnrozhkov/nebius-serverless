@@ -22,6 +22,12 @@ Lowest-friction first runs.
 
     Serve a small model with vLLM, call it, and delete it.
 
+-   :material-docker: **[First image](first-image.md)**
+
+    ---
+
+    Build a Dockerfile on Nebius, push it to a registry, and run a job on it.
+
 -   :material-notebook-outline: **[Notebooks](notebooks.md)**
 
     ---

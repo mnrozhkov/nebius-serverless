@@ -166,6 +166,25 @@ class WaitTimeout(Error):
     _recovery = _WAIT_RECOVERY
 
 
+class BuildFailed(Error):
+    """An image build job ended in a state other than ``COMPLETED``.
+
+    ``resource_id`` is the build job id and ``state`` its final state.
+    """
+
+    code = "build_failed"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        state: str | None = None,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(message, **kwargs)  # type: ignore[arg-type]
+        self.state = state
+
+
 def recovery_for(code: str, noun: str) -> str | None:
     """Recovery text that names ``noun``. ``None`` keeps the default.
 

@@ -131,3 +131,36 @@ def test_the_cli_tab_is_what_to_cli_prints() -> None:
 
     script = (EXAMPLES / "quickstarts" / "job_quickstart.sh").read_text()
     assert command(script) == command(created[0].to_cli())
+
+
+def test_image_quickstart_builds_reuses_and_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module(EXAMPLES / "quickstarts" / "image_quickstart.py")
+    built: list[ns.Image] = []
+    created: list[ns.JobSpec] = []
+    ref = "cr.eu-north1.nebius.cloud/e00abc/image:sha-0123456789ab"
+
+    class _FakeJob:
+        def wait(self) -> dict[str, object]:
+            return {"status": {"state": "COMPLETED"}}
+
+        def display(self) -> None:
+            pass
+
+    def fake_build(self: ns.Image) -> str:
+        built.append(self)
+        return ref
+
+    def fake_create(self: ns.JobSpec) -> _FakeJob:
+        created.append(self)
+        return _FakeJob()
+
+    monkeypatch.setattr(module.ns.Image, "build", fake_build)
+    monkeypatch.setattr(module.ns.JobSpec, "create", fake_create)
+    module.main()
+    assert len(built) == 2
+    assert built[0].dockerfile_string == module.DOCKERFILE
+    assert len(created) == 1
+    assert created[0].image == ref
+    assert created[0].gpu is None

@@ -71,6 +71,7 @@ nav:
       - Install and authenticate: quickstarts/install.md
       - First job: quickstarts/first-job.md
       - First endpoint: quickstarts/first-endpoint.md
+      - First image: quickstarts/first-image.md
       - Notebooks: quickstarts/notebooks.md
   - 🏋️ Training:
       - training/index.md
