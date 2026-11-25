@@ -601,6 +601,27 @@ def test_a_job_knows_where_the_bucket_is_mounted(
     assert ns.Task(mount_seen, image=IMAGE)() == task_module.MOUNT
 
 
+def test_in_a_pipeline_a_run_is_kept_under_pipeline_run_task(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = ns.Task(double, image=IMAGE)
+    monkeypatch.delenv(task_module.FOLDER_ENV, raising=False)
+    alone = task.submit(1)
+    assert alone.output_uri == (
+        f"s3://{BUCKET.name}/tasks/double/{STAMP}/files/"
+    )
+    monkeypatch.setenv(task_module.FOLDER_ENV, "my-flow/20261125-my-run")
+    inside = task.submit(2)
+    folder = f"my-flow/20261125-my-run/double-{STAMP}-2"
+    assert inside.output_uri == f"s3://{BUCKET.name}/{folder}/files/"
+    assert inside.output_path == f"{task_module.MOUNT}/{folder}/files"
+    assert inside.result() == 4
+    assert backend.exists(BUCKET, f"{folder}/payload.json")
+    assert backend.exists(BUCKET, f"{folder}/result.json")
+
+
 def test_inside_a_job_the_bucket_is_read_as_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

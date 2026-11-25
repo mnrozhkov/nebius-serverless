@@ -259,6 +259,14 @@ class PrefectFlow:
         secrets.update({item: version for item in values})
         env = dict(options.pop("env", None) or {})
         env[PREFECT_URL_ENV] = self.api_url
+        # One launch time names the run everywhere: its folder in the
+        # bucket, the flow job, and the flow run in Prefect.
+        launched = _task._run_name(self.name)
+        job_name = f"{launched}-{_task._plain_name(self.run_name)}"
+        # The bucket is laid out as <pipeline>/<run>/<task>. The flow
+        # job tells its tasks where the run's folder is.
+        folder = f"{self.name}/{job_name}"
+        env[_task.FOLDER_ENV] = folder
         template = os.environ.get(_task.CONSOLE_ENV)
         if template:
             env.setdefault(_task.CONSOLE_ENV, template)
@@ -277,9 +285,6 @@ class PrefectFlow:
                 "options": {**options, "env": env, "secrets": secrets},
             }
         )
-        # One launch time names the run everywhere: its folder in the
-        # bucket, the flow job, and the flow run in Prefect.
-        launched = _task._run_name(self.name)
         flow = {
             "title": self.flow_name,
             "run_title": f"{launched}-{self.run_name}",
@@ -297,7 +302,8 @@ class PrefectFlow:
             {"flow": flow},
             progress,
             run_name=launched,
-            job_name=f"{launched}-{_task._plain_name(self.run_name)}",
+            job_name=job_name,
+            key=f"{folder}/{_task.FLOW_FOLDER}",
         )
         run.inputs = dict(bound.arguments)
         return run

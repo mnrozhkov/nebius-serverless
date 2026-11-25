@@ -71,6 +71,11 @@ LIBS_DIR = "/tmp/ns-libs"
 # Set in a task's job to where the bucket is mounted there. A task
 # started from inside that job reads and writes the bucket as files.
 MOUNT_ENV = "NS_TASK_MOUNT"
+# Set in a flow job to the folder of the pipeline's run in the bucket,
+# <pipeline>/<run>. A task started there keeps its files under it.
+FOLDER_ENV = "NS_TASK_FOLDER"
+# The folder of the flow job itself, next to the folders of its tasks.
+FLOW_FOLDER = "flow"
 # The console address of a job, with {project} and {job} in it. When
 # set, a Prefect task run links to its job.
 CONSOLE_ENV = "NS_CONSOLE_JOB_URL"
@@ -488,9 +493,11 @@ class Task:
         *,
         run_name: str | None = None,
         job_name: str | None = None,
+        key: str | None = None,
     ) -> "TaskRun":
-        """Start one run. ``run_name`` and ``job_name`` replace the
-        run's time stamp and the job's ``<task>-<time>`` name."""
+        """Start one run. ``run_name``, ``job_name`` and ``key`` replace
+        the run's time stamp, the job's ``<task>-<time>`` name, and the
+        run's folder in the bucket."""
         bound = self._bind(args, kwargs)
         options = dict(self._options)
         project, region = resolve_location(
@@ -505,7 +512,9 @@ class Task:
         image, libs_key = self._prepare(progress, backend, bucket)
         if run_name is None:
             run_name = _run_name(self.name)
-        key = f"tasks/{self.name}/{run_name}"
+        job_name = job_name or f"{self.name}-{run_name}"
+        if key is None:
+            key = _run_key(self.name, run_name, job_name)
         command, files, payload = self._job_files(bound, key, libs_key)
         if payload is not None:
             backend.put(bucket, f"{key}/payload.json", payload)
@@ -514,7 +523,7 @@ class Task:
             spec = JobSpec(
                 command,
                 image=image,
-                name=job_name or f"{self.name}-{run_name}",
+                name=job_name,
                 volumes=volumes,
                 inject_files=[
                     f"{folder / item}:{JOB_DIR}/{item}" for item in files
@@ -1095,6 +1104,20 @@ class MountedTaskBackend(SdkTaskBackend):
     def exists(self, bucket: Bucket, key: str) -> bool:
         """Whether the object exists."""
         return (self._root / key).is_file()
+
+
+def _run_key(task: str, run_name: str, job_name: str) -> str:
+    """The folder of one run in the bucket.
+
+    In a pipeline: ``<pipeline>/<run>/<task>``, where ``<task>`` is the
+    name of the task's job, such as ``train-baseline-20261125-121050``.
+    The pipeline's flow job sets where that is. A task run on its own
+    has no pipeline: ``tasks/<task name>/<UTC time>``.
+    """
+    folder = os.environ.get(FOLDER_ENV, "").strip("/")
+    if folder:
+        return f"{folder}/{job_name}"
+    return f"tasks/{task}/{run_name}"
 
 
 def _has_runs(value: object) -> bool:

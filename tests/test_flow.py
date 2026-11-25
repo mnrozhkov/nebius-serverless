@@ -189,7 +189,11 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
     }
     assert sorted(injected) == ["pointer.json", "runner.py"]
     pointer = json.loads(injected["pointer.json"])
-    key = f"tasks/my-flow/{STAMP}"
+    # The run's folder is <pipeline>/<run>, with the flow job's own
+    # files under "flow". The job tells its tasks where that is.
+    key = f"my-flow/{STAMP}-lr-sweep/flow"
+    assert variables["NS_TASK_FOLDER"]["value"] == f"my-flow/{STAMP}-lr-sweep"
+    assert run.output_uri == f"s3://{BUCKET.name}/{key}/files/"
     assert pointer["run"] == key
     raw = backend.get(BUCKET, f"{key}/payload.json")
     assert raw is not None

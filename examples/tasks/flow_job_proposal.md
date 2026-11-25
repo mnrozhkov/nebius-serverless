@@ -334,9 +334,25 @@ the default image with exactly that Prefect version.
   the other. The time is UTC, to the second. `run_name` is the same
   for every run of a `PrefectFlow` and defaults to `flow_name`. The
   job's name uses the plain form of `run_name`: lowercase letters,
-  digits and dashes. The run's folder in the bucket is
-  `tasks/<flow_name>/<launch time>/`. The task jobs are named as any
-  task run: `<task name>-<UTC time>`.
+  digits and dashes. The task jobs are named as any task run:
+  `<task name>-<UTC time>`.
+- **Layout in the bucket.** `<pipeline>/<run>/<task>/`. The pipeline
+  is the plain form of `flow_name`, the run is the run's name, and
+  the task is the name of the task's job:
+
+  ```
+  mnist-baseline/
+    20261125-120614-mnist-baseline/
+      flow/                                  # the flow job itself
+      prepare-data-20261125-120752/
+      train-baseline-20261125-121050/
+      train-baseline-20261125-121050-2/
+      aggregate-results-20261125-121746/
+  ```
+
+  Each folder holds that job's `payload.json`, its `result.json` and
+  its `files/`. The flow job sets `NS_TASK_FOLDER` so that the tasks
+  it starts know the run's folder. Library archives stay in `libs/`.
 - **What Prefect shows for a task.** Each task run has three Markdown
   artifacts: `nebius-job` (the job's id, its name, the command for
   its logs, where its files are) and `inputs`, written when the job
