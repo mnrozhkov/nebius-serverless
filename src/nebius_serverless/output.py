@@ -63,6 +63,7 @@ _LOG_FACT = {
     ),
     "account": (logging.INFO, "Account checked", "account"),
     "image": (logging.INFO, "Image build", "image"),
+    "task": (logging.INFO, "Task run", "task"),
     "probe": (logging.INFO, "Application probe", "probe"),
     "resubmitted": (logging.INFO, "Preempted; resubmitting", "resubmitted"),
     "local_timeout": (
@@ -221,7 +222,7 @@ class Progress:
                 )
             )
             return
-        if fact.kind in ("account", "image"):
+        if fact.kind in ("account", "image", "task"):
             self._write(plain_text(fact.message or ""))
             return
         if fact.kind == "token_generated":

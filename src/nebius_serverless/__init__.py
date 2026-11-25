@@ -20,16 +20,19 @@ from .errors import (
     Error,
     KeyConflict,
     SubmissionUncertain,
+    TaskFailed,
     TransportError,
     UnsupportedFeature,
     ValidationError,
     WaitTimeout,
 )
+from .flow import PrefectFlow
 from .image import Image
 from .job import Job, jobs
 from .job_spec import JobSpec
 from .log import configure_logging, diagnostics
 from .session import close, configure
+from .task import Task
 
 __all__ = [
     "AccessError",
@@ -42,7 +45,10 @@ __all__ = [
     "Job",
     "JobSpec",
     "KeyConflict",
+    "PrefectFlow",
     "SubmissionUncertain",
+    "Task",
+    "TaskFailed",
     "TransportError",
     "UnsupportedFeature",
     "ValidationError",

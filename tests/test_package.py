@@ -17,6 +17,7 @@ def test_version_and_section_10_errors() -> None:
         "CapacityError",
         "KeyConflict",
         "SubmissionUncertain",
+        "TaskFailed",
         "TransportError",
         "WaitTimeout",
     ):
@@ -35,7 +36,10 @@ def test_public_surface() -> None:
         "Job",
         "JobSpec",
         "KeyConflict",
+        "PrefectFlow",
         "SubmissionUncertain",
+        "Task",
+        "TaskFailed",
         "TransportError",
         "UnsupportedFeature",
         "ValidationError",
