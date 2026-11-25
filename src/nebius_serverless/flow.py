@@ -6,11 +6,14 @@ Prefect flow, and that job starts the tasks' jobs. Constructing a
 ``PrefectFlow`` does not contact Nebius.
 """
 
+import base64
 import builtins
 import inspect
 import json
 import os
 import threading
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -32,6 +35,10 @@ SECRET_NAME = "generated-tasks-credentials"
 TOKEN_ENV = "NEBIUS_IAM_TOKEN"
 PREFECT_URL_ENV = "PREFECT_API_URL"
 PREFECT_AUTH_ENV = "PREFECT_API_AUTH_STRING"
+# Where the Prefect server's login is read from when it is not in the
+# environment or in Prefect's settings: one line, ``user:password``.
+PREFECT_AUTH_FILE = Path("~/.config/prefect/auth")
+_PREFECT_TIMEOUT = 10.0
 _TOKEN_TIMEOUT = 30.0
 
 # The default image of a flow job: Python, Prefect, and what this
@@ -81,8 +88,11 @@ class PrefectFlow:
     Prefect server's login when there is one, are written as a new
     version of the ``generated-tasks-credentials`` secret in MysteryBox
     and reach the job as environment variables. Versions are not
-    deleted. The login is read from ``PREFECT_API_AUTH_STRING`` or from
-    your local Prefect settings.
+    deleted. The login is read from ``PREFECT_API_AUTH_STRING``, from
+    your local Prefect settings, or from the file
+    ``~/.config/prefect/auth`` (one line, ``user:password``). ``submit``
+    checks it with the server first, so a missing or wrong login fails
+    at once and not inside the job.
 
     Args:
         function: The pipeline. A plain function, or one with ``@flow``.
@@ -231,6 +241,8 @@ class PrefectFlow:
                 f"{self.flow_name}'s arguments must be JSON values: {exc}.",
                 operation=_OP,
             ) from None
+        login = _prefect_login()
+        _check_prefect(self.api_url, login)
         options = _task._plain_options(self._options)
         profile = options.get("profile")
         project, region = resolve_location(
@@ -251,7 +263,6 @@ class PrefectFlow:
             _own_package(), backend, bucket, progress, "this package"
         )
         values = {TOKEN_ENV: _access_token(profile)}
-        login = _prefect_login()
         if login:
             values[PREFECT_AUTH_ENV] = login
         version = _store_credentials(project, profile, values)
@@ -263,9 +274,9 @@ class PrefectFlow:
         # bucket, the flow job, and the flow run in Prefect.
         launched = _task._run_name(self.name)
         job_name = f"{launched}-{_task._plain_name(self.run_name)}"
-        # The bucket is laid out as <pipeline>/<run>/<task>. The flow
-        # job tells its tasks where the run's folder is.
-        folder = f"{self.name}/{job_name}"
+        # The bucket is laid out as flows/<pipeline>/<run>/<task>. The
+        # flow job tells its tasks where the run's folder is.
+        folder = f"{_task.FLOWS_ROOT}/{self.name}/{job_name}"
         env[_task.FOLDER_ENV] = folder
         template = os.environ.get(_task.CONSOLE_ENV)
         if template:
@@ -428,7 +439,11 @@ def _access_token(profile: str | None) -> str:
 
 
 def _prefect_login() -> str | None:
-    """The Prefect server's ``user:password``, when one is set here."""
+    """The Prefect server's ``user:password``, when one is set here.
+
+    Looked for in ``PREFECT_API_AUTH_STRING``, then in the local Prefect
+    settings, then in the file ``~/.config/prefect/auth``.
+    """
     value: object = os.environ.get(PREFECT_AUTH_ENV)
     if not value:
         try:
@@ -442,7 +457,50 @@ def _prefect_login() -> str | None:
     reveal = getattr(value, "get_secret_value", None)
     if callable(reveal):
         value = reveal()
+    if not value:
+        try:
+            value = PREFECT_AUTH_FILE.expanduser().read_text().strip()
+        except OSError:
+            value = None
     return value if isinstance(value, str) and value else None
+
+
+def _check_prefect(api_url: str, login: str | None) -> None:
+    """Fail now if the Prefect server will refuse the flow job.
+
+    Asks the server for its version with the login the job would get.
+    A refusal raises, before any image is built or job started. A
+    server that cannot be reached from this machine is not an error:
+    the job may still reach it.
+    """
+    request = urllib.request.Request(api_url.rstrip("/") + "/admin/version")
+    if login:
+        token = base64.b64encode(login.encode()).decode()
+        request.add_header("Authorization", f"Basic {token}")
+    try:
+        with urllib.request.urlopen(request, timeout=_PREFECT_TIMEOUT):
+            return
+    except urllib.error.HTTPError as exc:
+        if exc.code not in (401, 403):
+            return
+    except (urllib.error.URLError, OSError, ValueError):
+        return
+    where = (
+        f"Set {PREFECT_AUTH_ENV} to user:password, or put it on one "
+        f"line in {PREFECT_AUTH_FILE}."
+    )
+    if login:
+        raise AccessError(
+            f"The Prefect server at {api_url} refused the login.",
+            operation=_OP,
+            recovery=where,
+        )
+    raise AccessError(
+        f"The Prefect server at {api_url} asks for a login, and none "
+        "was found on this machine.",
+        operation=_OP,
+        recovery=where,
+    )
 
 
 def _store_credentials(

@@ -31,7 +31,7 @@ job in ``nebius-job``.
 from tasks import (
     EXPERIMENT,
     LEARNING_RATES,
-    PREFECT_SERVER,
+    PREFECT_API_URL,
     aggregate,
     evaluate,
     gpu_check,
@@ -49,7 +49,7 @@ def pipeline(epochs: int = 5) -> dict[str, object]:
     # gpu_check(exp_name=EXPERIMENT, fields="memory.total,driver_version")
 
     # doesn't block anything
-    gpu_check.submit(exp_name=EXPERIMENT, fields="memory.total,driver_version")
+    gpu_check.submit(fields="memory.total,driver_version")
 
     data = prepare.submit(dataset="mnist")
     data_dir = data.result()["data_dir"]
@@ -75,13 +75,13 @@ def pipeline(epochs: int = 5) -> dict[str, object]:
 flow = ns.PrefectFlow(
     pipeline,
     flow_name="mnist-baseline",
-    api_url=PREFECT_SERVER,
+    api_url=PREFECT_API_URL,
     timeout="3h",
 )
 
 
 if __name__ == "__main__":
-    # run = flow.submit(epochs=5)
-    # print(f"started flow job {run.job.id}, run {run.name}")
+    run = flow.submit(epochs=5)
+    print(f"started flow job {run.job.id}, run {run.name}")
 
-    pipeline(epochs=5)
+    # pipeline(epochs=5)

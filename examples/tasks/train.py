@@ -30,7 +30,7 @@ from tasks import (
 
 def main() -> None:
     """Run the pipeline and print the best learning rate."""
-    gpu = gpu_check(exp_name=EXPERIMENT, fields="memory.total,driver_version")
+    gpu = gpu_check(fields="memory.total,driver_version")
     # A dict of strings, something like:
     # {"exp_name": "mnist-baseline", "gpu_count": "1",
     #  "gpu_name": "NVIDIA H100 ...", "details": "81559 MiB, 570.86.15"}

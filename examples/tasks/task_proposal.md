@@ -233,7 +233,7 @@ ns.Task(train, image=image, include_libs=["src.training", "src.common"])
   `axolotl-train-20261124-153922`, so jobs sort by time in the console
   and stay recognisable. The run folder is `tasks/<name>/<run name>/`
   for a task run on its own. In a pipeline it is
-  `<pipeline>/<run>/<task>/`; see `flow_job_proposal.md`.
+  `flows/<pipeline>/<run>/<task>/`; see `flow_job_proposal.md`.
 - Runs of one task that start in the same second get a counter
   appended, from the second one on: `20261124-153922-2`. This covers
   `submit` in a loop.

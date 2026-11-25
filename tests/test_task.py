@@ -612,9 +612,10 @@ def test_in_a_pipeline_a_run_is_kept_under_pipeline_run_task(
     assert alone.output_uri == (
         f"s3://{BUCKET.name}/tasks/double/{STAMP}/files/"
     )
-    monkeypatch.setenv(task_module.FOLDER_ENV, "my-flow/20261125-my-run")
+    run_folder = "flows/my-flow/20261125-my-run"
+    monkeypatch.setenv(task_module.FOLDER_ENV, run_folder)
     inside = task.submit(2)
-    folder = f"my-flow/20261125-my-run/double-{STAMP}-2"
+    folder = f"{run_folder}/double-{STAMP}-2"
     assert inside.output_uri == f"s3://{BUCKET.name}/{folder}/files/"
     assert inside.output_path == f"{task_module.MOUNT}/{folder}/files"
     assert inside.result() == 4

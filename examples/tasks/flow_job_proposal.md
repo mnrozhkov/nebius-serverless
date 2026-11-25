@@ -336,18 +336,19 @@ the default image with exactly that Prefect version.
   job's name uses the plain form of `run_name`: lowercase letters,
   digits and dashes. The task jobs are named as any task run:
   `<task name>-<UTC time>`.
-- **Layout in the bucket.** `<pipeline>/<run>/<task>/`. The pipeline
-  is the plain form of `flow_name`, the run is the run's name, and
-  the task is the name of the task's job:
+- **Layout in the bucket.** `flows/<pipeline>/<run>/<task>/`. The
+  pipeline is the plain form of `flow_name`, the run is the run's
+  name, and the task is the name of the task's job:
 
   ```
-  mnist-baseline/
-    20261125-120614-mnist-baseline/
-      flow/                                  # the flow job itself
-      prepare-data-20261125-120752/
-      train-baseline-20261125-121050/
-      train-baseline-20261125-121050-2/
-      aggregate-results-20261125-121746/
+  flows/
+    mnist-baseline/
+      20261125-120614-mnist-baseline/
+        flow/                                  # the flow job itself
+        prepare-data-20261125-120752/
+        train-baseline-20261125-121050/
+        train-baseline-20261125-121050-2/
+        aggregate-results-20261125-121746/
   ```
 
   Each folder holds that job's `payload.json`, its `result.json` and

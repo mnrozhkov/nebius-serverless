@@ -23,6 +23,7 @@ dont consider this:
 # import succeeds only if ``include_libs`` sent the package to the job.
 """
 
+
 import os
 
 from src.data.mnist import prepare_data
@@ -32,10 +33,10 @@ import nebius_serverless as ns
 EXPERIMENT = "mnist-baseline"
 LEARNING_RATES = [0.3, 0.1, 0.03, 0.01]
 
-# Where train_prefect.py records its flow runs: the API address of the
-# Prefect server, such as https://prefect.example.com/api. It is read
-# from the environment, so that no server address is kept in this file.
-PREFECT_SERVER = os.environ.get("PREFECT_API_URL")
+# The API address of the Prefect server, such as
+# https://prefect.example.com/api. It is read from the environment, so
+# that no server address is kept in this file.
+PREFECT_API_URL = os.environ.get("PREFECT_API_URL")
 
 
 DOCKERFILE = """
@@ -52,10 +53,9 @@ gpu_check = ns.Task(
     image=image_torch,
     gpu="h100",
     timeout="10m",
-    inputs=["exp_name", "fields"],
+    inputs=["fields"],
     command="""
     nvidia-smi
-    outputs[exp_name]=${inputs[exp_name]}
     outputs[gpu_count]=$(nvidia-smi --list-gpus | wc -l)
     outputs[gpu_name]=$(
         nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1

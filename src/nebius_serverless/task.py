@@ -76,6 +76,8 @@ MOUNT_ENV = "NS_TASK_MOUNT"
 FOLDER_ENV = "NS_TASK_FOLDER"
 # The folder of the flow job itself, next to the folders of its tasks.
 FLOW_FOLDER = "flow"
+# Where pipelines keep their runs in the bucket: flows/<pipeline>/<run>.
+FLOWS_ROOT = "flows"
 # The console address of a job, with {project} and {job} in it. When
 # set, a Prefect task run links to its job.
 CONSOLE_ENV = "NS_CONSOLE_JOB_URL"
@@ -1109,8 +1111,9 @@ class MountedTaskBackend(SdkTaskBackend):
 def _run_key(task: str, run_name: str, job_name: str) -> str:
     """The folder of one run in the bucket.
 
-    In a pipeline: ``<pipeline>/<run>/<task>``, where ``<task>`` is the
-    name of the task's job, such as ``train-baseline-20261125-121050``.
+    In a pipeline: ``flows/<pipeline>/<run>/<task>``, where ``<task>``
+    is the name of the task's job, such as
+    ``train-baseline-20261125-121050``.
     The pipeline's flow job sets where that is. A task run on its own
     has no pipeline: ``tasks/<task name>/<UTC time>``.
     """

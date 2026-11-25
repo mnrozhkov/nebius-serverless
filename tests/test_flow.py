@@ -8,7 +8,10 @@ import importlib
 import inspect
 import io
 import json
+import sys
 import tarfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -32,6 +35,8 @@ from nebius_serverless import task as task_module
 from nebius_serverless.image import Image
 
 API = "https://prefect.test/api"
+# The real check. The credentials fixture replaces it on the module.
+CHECK_PREFECT = flow_module._check_prefect
 RATES = [0.1, 0.01]
 NAME = "experiment"
 
@@ -71,6 +76,7 @@ def credentials(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str]]:
     monkeypatch.setattr(flow_module, "_store_credentials", store)
     monkeypatch.setattr(flow_module, "_access_token", lambda profile: "tok")
     monkeypatch.setattr(flow_module, "_prefect_login", lambda: "me:pw")
+    monkeypatch.setattr(flow_module, "_check_prefect", lambda url, login: None)
     monkeypatch.setattr(
         Image,
         "_build",
@@ -189,10 +195,11 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
     }
     assert sorted(injected) == ["pointer.json", "runner.py"]
     pointer = json.loads(injected["pointer.json"])
-    # The run's folder is <pipeline>/<run>, with the flow job's own
-    # files under "flow". The job tells its tasks where that is.
-    key = f"my-flow/{STAMP}-lr-sweep/flow"
-    assert variables["NS_TASK_FOLDER"]["value"] == f"my-flow/{STAMP}-lr-sweep"
+    # The run's folder is flows/<pipeline>/<run>, with the flow job's
+    # own files under "flow". The job tells its tasks where that is.
+    folder = f"flows/my-flow/{STAMP}-lr-sweep"
+    key = f"{folder}/flow"
+    assert variables["NS_TASK_FOLDER"]["value"] == folder
     assert run.output_uri == f"s3://{BUCKET.name}/{key}/files/"
     assert pointer["run"] == key
     raw = backend.get(BUCKET, f"{key}/payload.json")
@@ -306,6 +313,77 @@ def test_a_changed_payload_is_refused(
     monkeypatch.setattr(backend, "put", tampering)
     with pytest.raises(ns.TaskFailed, match="not what was submitted"):
         ns.Task(double, image=IMAGE)(21)
+
+
+def test_the_login_is_found_in_the_environment_or_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "prefect.settings", None)
+    monkeypatch.delenv("PREFECT_API_AUTH_STRING", raising=False)
+    monkeypatch.setattr(flow_module, "PREFECT_AUTH_FILE", tmp_path / "auth")
+    assert flow_module._prefect_login() is None
+    (tmp_path / "auth").write_text("file-user:file-pw\n")
+    assert flow_module._prefect_login() == "file-user:file-pw"
+    monkeypatch.setenv("PREFECT_API_AUTH_STRING", "env-user:env-pw")
+    assert flow_module._prefect_login() == "env-user:env-pw"
+
+
+class _Reply:
+    def __enter__(self) -> "_Reply":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+def test_a_refused_login_fails_before_anything_is_started(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    credentials: list[dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str | None] = []
+
+    def refuse(request: urllib.request.Request, timeout: float) -> _Reply:
+        seen.append(request.get_header("Authorization"))
+        raise urllib.error.HTTPError(API, 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+    check = CHECK_PREFECT
+    with pytest.raises(ns.AccessError, match="asks for a login") as caught:
+        check(API, None)
+    assert "~/.config/prefect/auth" in str(caught.value.recovery)
+    with pytest.raises(ns.AccessError, match="refused the login"):
+        check(API, "me:wrong")
+    assert seen == [None, "Basic bWU6d3Jvbmc="]
+
+    # submit makes the check first: nothing is written or started.
+    monkeypatch.setattr(flow_module, "_check_prefect", check)
+    with pytest.raises(ns.AccessError, match="refused the login"):
+        ns.PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
+    assert credentials == []
+    assert transport.bodies == []
+
+
+def test_an_accepted_login_or_an_unreachable_server_is_not_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda request, timeout: _Reply()
+    )
+    CHECK_PREFECT(API, "me:pw")
+
+    def unreachable(request: object, timeout: float) -> _Reply:
+        raise urllib.error.URLError("no route")
+
+    monkeypatch.setattr(urllib.request, "urlopen", unreachable)
+    CHECK_PREFECT(API, None)
+
+    def missing(request: object, timeout: float) -> _Reply:
+        raise urllib.error.HTTPError(API, 404, "Not Found", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(urllib.request, "urlopen", missing)
+    CHECK_PREFECT(API, None)
 
 
 def test_a_function_with_the_flow_decorator_is_accepted() -> None:
