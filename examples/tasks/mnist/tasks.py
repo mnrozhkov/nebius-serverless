@@ -1,9 +1,8 @@
 """The tasks and constants of the MNIST baseline experiment.
 
-``train.py`` and ``train_prefect.py`` import them from here. Run those
-from this folder: the tasks send the local package ``lib`` with
-``include_libs=["lib"]``, which is found the same way ``import lib``
-finds it.
+``train.py`` imports them from here. Run it from this folder: the tasks
+send the local package ``lib`` with ``include_libs=["lib"]``, which is
+found the same way ``import lib`` finds it.
 
 The training tasks share one image, built from ``DOCKERFILE`` on the
 first run and reused after that. ``aggregate`` needs only Python and
@@ -17,12 +16,19 @@ uses a public image.
   CPU job. Its result is the experiment's result.
 """
 
+import os
+
 from lib.data.mnist import prepare_data
 
 import nebius_serverless as ns
 
 EXPERIMENT = "mnist-baseline"
 LEARNING_RATES = [0.3, 0.1, 0.03, 0.01]
+
+# The API address of the Prefect server, such as
+# https://prefect.example.com/api. It is read from the environment, so
+# that no server address is kept in this file.
+PREFECT_API_URL = os.environ.get("PREFECT_API_URL")
 
 DOCKERFILE = """
 FROM python:3.12-slim-bookworm
