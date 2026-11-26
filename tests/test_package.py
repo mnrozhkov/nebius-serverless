@@ -36,7 +36,6 @@ def test_public_surface() -> None:
         "Job",
         "JobSpec",
         "KeyConflict",
-        "PrefectFlow",
         "SubmissionUncertain",
         "Task",
         "TaskFailed",

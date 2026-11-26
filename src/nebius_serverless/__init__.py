@@ -26,7 +26,6 @@ from .errors import (
     ValidationError,
     WaitTimeout,
 )
-from .flow import PrefectFlow
 from .image import Image
 from .job import Job, jobs
 from .job_spec import JobSpec
@@ -45,7 +44,6 @@ __all__ = [
     "Job",
     "JobSpec",
     "KeyConflict",
-    "PrefectFlow",
     "SubmissionUncertain",
     "Task",
     "TaskFailed",

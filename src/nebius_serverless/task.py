@@ -7,46 +7,33 @@ contact Nebius.
 Code and results travel through a bucket in the project,
 ``generated-tasks-<project id>``, which the first run creates. Jobs
 mount it; this machine reads and writes it with your S3 credentials.
+The bucket is in ``task_storage``, the code that travels in
+``task_libs``, and what runs in the job in ``task_runner``.
+
+Besides ``Task`` and ``TaskRun``, the functions at the end of this
+module are for code that runs tasks on a user's behalf, such as an
+orchestrator integration: they start a run in a given folder, and turn
+a task into a JSON record and back.
 """
 
-import ast
-import builtins
-import configparser
-import dis
-import gzip
 import hashlib
-import hmac
-import importlib.util
 import inspect
-import io
 import json
 import os
 import re
-import shlex
-import sysconfig
-import tarfile
 import tempfile
 import textwrap
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
-from types import CodeType
 from typing import Any
 
-from .errors import (
-    AccessError,
-    Error,
-    TaskFailed,
-    TransportError,
-    ValidationError,
-)
+from . import task_runner, task_storage
+from .errors import Error, TaskFailed, ValidationError
 from .image import Image
 from .job import Job
 from .job_spec import JobSpec
@@ -54,144 +41,41 @@ from .output import Progress, call_progress, report
 from .profile import resolve_location
 from .recipe import INJECT_FILE_MAX_BYTES, validate_image
 from .status import Status
+from .task_libs import (
+    covered,
+    function_source,
+    pack_libs,
+    upload_libs,
+    validate_libs,
+)
+from .task_storage import Bucket, SdkTaskBackend
 from .transport import Transport
 
 _LOG = "nebius_serverless.task"
+
+
 _OP = "Task"
 
-BUCKET_PREFIX = "generated-tasks-"
-BUCKET_LABELS = {"managed-by": "nebius-serverless"}
-# Where every task's job sees the bucket. It is the same in all jobs, so
-# a path one task returns can be opened by another.
-MOUNT = "/ns"
-# Where the generated runner and its inputs are injected.
-JOB_DIR = "/ns-task"
-# Where include_libs are unpacked in the job.
-LIBS_DIR = "/tmp/ns-libs"
-# Set in a task's job to where the bucket is mounted there. A task
-# started from inside that job reads and writes the bucket as files.
-MOUNT_ENV = "NS_TASK_MOUNT"
-# Set in a flow job to the folder of the pipeline's run in the bucket,
-# <pipeline>/<run>. A task started there keeps its files under it.
-FOLDER_ENV = "NS_TASK_FOLDER"
-# The folder of the flow job itself, next to the folders of its tasks.
-FLOW_FOLDER = "flow"
-# Where pipelines keep their runs in the bucket: flows/<pipeline>/<run>.
-FLOWS_ROOT = "flows"
+
 # The console address of a job, with {project} and {job} in it. When
-# set, a Prefect task run links to its job.
+# set, ``console_url`` links to a run's job.
 CONSOLE_ENV = "NS_CONSOLE_JOB_URL"
-# The names of the artifacts a Prefect task run gets.
-JOB_ARTIFACT = "nebius-job"
-INPUTS_ARTIFACT = "inputs"
-OUTPUTS_ARTIFACT = "outputs"
-# How much of one input or output value is shown in Prefect.
-_SHOWN_MAX = 500
+
+
 DEFAULT_TIMEOUT = "24h"
+
+
 # A result can appear in the bucket a moment after the job ends.
 RESULT_TRIES = 5
+
+
 RESULT_PAUSE = 2.0
-_S3_TIMEOUT = 60.0
+
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_LIB_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+
+
 _NAME_MAX = 40
-
-# Runs a function in the job. Standard library only, so the image needs
-# nothing but python3.
-RUNNER = '''\
-"""Run one ns.Task function inside the job."""
-
-import hashlib
-import importlib
-import io
-import json
-import os
-import sys
-import tarfile
-import traceback
-
-
-def load(payload, root):
-    if payload["libs"]:
-        folder = payload["libs_dir"]
-        os.makedirs(folder, exist_ok=True)
-        with open(os.path.join(root, payload["libs"]), "rb") as handle:
-            data = handle.read()
-        expected = os.path.basename(payload["libs"]).split(".")[0]
-        if hashlib.sha256(data).hexdigest()[: len(expected)] != expected:
-            raise RuntimeError("The library archive is not what was sent.")
-        with tarfile.open(fileobj=io.BytesIO(data)) as archive:
-            try:
-                archive.extractall(folder, filter="data")
-            except TypeError:
-                archive.extractall(folder)
-        sys.path.insert(0, folder)
-        previous = os.environ.get("PYTHONPATH")
-        os.environ["PYTHONPATH"] = (
-            folder + os.pathsep + previous if previous else folder
-        )
-    if payload["module"]:
-        target = importlib.import_module(payload["module"])
-        for part in payload["qualname"].split("."):
-            target = getattr(target, part)
-        return target
-    scope = {"__name__": "__ns_task__"}
-    exec(compile(payload["source"], "<ns.Task source>", "exec"), scope)
-    return scope[payload["qualname"]]
-
-
-def main():
-    here = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(here, "pointer.json")) as handle:
-        pointer = json.load(handle)
-    root = pointer["root"]
-    run = os.path.join(root, pointer["run"])
-    files = os.path.join(run, "files")
-    os.makedirs(files, exist_ok=True)
-    os.environ["NS_OUTPUT_DIR"] = files
-    os.environ["NS_TASK_MOUNT"] = root
-    code = 0
-    try:
-        with open(os.path.join(run, "payload.json"), "rb") as handle:
-            raw = handle.read()
-        if hashlib.sha256(raw).hexdigest() != pointer["sha256"]:
-            raise RuntimeError("payload.json is not what was submitted.")
-        payload = json.loads(raw)
-        function = load(payload, root)
-        value = function(*payload["args"], **payload["kwargs"])
-        body = json.dumps({"ok": True, "value": value})
-    except BaseException as exc:
-        code = 1
-        traceback.print_exc()
-        error = {
-            "type": type(exc).__name__,
-            "message": str(exc),
-            "traceback": traceback.format_exc(),
-        }
-        body = json.dumps({"ok": False, "error": error})
-    with open(os.path.join(run, "result.json"), "w") as handle:
-        handle.write(body)
-    sys.exit(code)
-
-
-if __name__ == "__main__":
-    main()
-'''
-
-_lock = threading.Lock()
-_buckets: dict[tuple[int, str, str], "Bucket"] = {}
-_stamps: dict[str, tuple[str, int]] = {}
-
-
-@dataclass(frozen=True)
-class Bucket:
-    """The project's task bucket: what jobs mount and the client reads."""
-
-    id: str
-    name: str
-    endpoint: str
-    region: str
 
 
 class Task:
@@ -277,8 +161,8 @@ class Task:
         self.image: Image | str = (
             image if isinstance(image, Image) else validate_image(image)
         )
-        self.include_libs = _validate_libs(include_libs)
-        self._options = _validate_options(job_options)
+        self.include_libs = validate_libs(include_libs)
+        self._options = validate_options(job_options)
         self.function = function
         self.command: str | None = None
         self.inputs: tuple[str, ...] = ()
@@ -309,7 +193,7 @@ class Task:
                 )
             default_name = name
             self.__signature__ = _keyword_signature(self.inputs)
-        self.name = _plain_name(name if name is not None else default_name)
+        self.name = plain_name(name if name is not None else default_name)
         self.__name__ = self.name
         self._built: tuple[str, str] | None = None
         self._build_lock = threading.Lock()
@@ -330,7 +214,7 @@ class Task:
         try:
             return run.result()
         except KeyboardInterrupt:
-            run._cancel()
+            run.cancel()
             raise
 
     def submit(self, *args: Any, **kwargs: Any) -> "TaskRun":
@@ -402,60 +286,6 @@ class Task:
         ).start()
         return run
 
-    def to_prefect(self, *, folder: str | None = None, **options: Any) -> Any:
-        """Return this task as a Prefect task.
-
-        Calling the Prefect task in a flow runs this task's job and
-        returns its result. A failure raises ``TaskFailed``, so Prefect
-        marks the task run failed and its retries apply. Each retry is
-        a new run with a new job. ``submit`` and ``map`` on the returned
-        object are Prefect's own and run the jobs at the same time.
-
-        Each task run gets three Markdown artifacts in Prefect:
-        ``nebius-job`` (the job id, its name, the command for its logs,
-        where its files are) and ``inputs`` when the job has started,
-        and ``outputs`` when it has ended. The same goes to the task
-        run's log. With ``NS_CONSOLE_JOB_URL`` set to the console
-        address of a job, with ``{project}`` and ``{job}`` in it,
-        ``nebius-job`` links to the job.
-
-        ``folder`` is the pipeline run's folder in the bucket, such as
-        ``flows/<pipeline>/<run>``. Each job's files then go under
-        ``<folder>/<job name>``. Without it, ``NS_TASK_FOLDER`` is used
-        when set, and ``tasks/<task name>/<UTC time>`` otherwise.
-
-        ``options`` go to ``prefect.task``, for example ``retries=2``.
-        The Prefect task is named after this task unless ``name`` is
-        given. Needs the ``prefect`` package.
-        """
-        try:
-            from prefect import (  # type: ignore[import-not-found]
-                task,
-            )
-        except ImportError:
-            raise ValidationError(
-                "to_prefect needs the prefect package.",
-                operation=_OP,
-                recovery="Install it: pip install prefect",
-            ) from None
-
-        def run(*args: Any, **kwargs: Any) -> Any:
-            started = self._start(args, kwargs, folder=folder)
-            _show_started(started)
-            try:
-                value = started.result()
-            except KeyboardInterrupt:
-                started._cancel()
-                raise
-            _show_finished(started, value)
-            return value
-
-        run.__name__ = run.__qualname__ = self.name
-        run.__doc__ = self.__doc__
-        setattr(run, "__signature__", self.__signature__)
-        options.setdefault("name", self.name)
-        return task(**options)(run)
-
     def _init_function(self, function: Callable[..., Any]) -> None:
         if not inspect.isfunction(function):
             raise ValidationError(
@@ -468,7 +298,7 @@ class Task:
             )
         module = function.__module__ or ""
         self._qualname = function.__qualname__
-        if _covered(module, self.include_libs):
+        if covered(module, self.include_libs):
             if "<locals>" in self._qualname:
                 raise ValidationError(
                     f"{function.__name__} is defined inside another "
@@ -478,7 +308,7 @@ class Task:
             self._module = module
             return
         self._qualname = function.__name__
-        self._source = _function_source(function)
+        self._source = function_source(function)
 
     def _init_command(
         self, command: object, inputs: Sequence[str] | None
@@ -530,20 +360,23 @@ class Task:
             project=options.get("project"),
             region=None,
         )
-        backend = _backend(options.get("profile"))
+        backend = task_storage.backend(options.get("profile"))
         bucket, created = backend.ensure_bucket(project)
         if created:
-            _say(progress, f"Created bucket {bucket.name} ({bucket.id}).")
+            say(progress, f"Created bucket {bucket.name} ({bucket.id}).")
         image, libs_key = self._prepare(progress, backend, bucket)
         if run_name is None:
-            run_name = _run_name(self.name)
+            run_name = task_runner.run_name(self.name)
         job_name = job_name or f"{self.name}-{run_name}"
         if key is None:
-            key = _run_key(self.name, run_name, job_name, folder)
+            key = task_runner.run_key(self.name, run_name, job_name, folder)
         command, files, payload = self._job_files(bound, key, libs_key)
         if payload is not None:
             backend.put(bucket, f"{key}/payload.json", payload)
-        volumes = [f"{bucket.id}:{MOUNT}:rw", *options.pop("volumes", ())]
+        volumes = [
+            f"{bucket.id}:{task_runner.MOUNT}:rw",
+            *options.pop("volumes", ()),
+        ]
         with _staged(files) as staged:
             spec = JobSpec(
                 command,
@@ -551,7 +384,8 @@ class Task:
                 name=job_name,
                 volumes=volumes,
                 inject_files=[
-                    f"{staged / item}:{JOB_DIR}/{item}" for item in files
+                    f"{staged / item}:{task_runner.JOB_DIR}/{item}"
+                    for item in files
                 ],
                 **options,
             )
@@ -559,7 +393,7 @@ class Task:
                 dry_run=False,
                 region=region,
                 project=project,
-                transport=_transport(),
+                transport=job_transport(),
                 progress=progress,
                 idempotency_key=None,
             )
@@ -577,7 +411,7 @@ class Task:
         )
 
     def _prepare(
-        self, progress: Progress, backend: "SdkTaskBackend", bucket: Bucket
+        self, progress: Progress, backend: SdkTaskBackend, bucket: Bucket
     ) -> tuple[str, str | None]:
         """Build the image and upload the libraries, when they are needed.
 
@@ -586,12 +420,12 @@ class Task:
         if self._fixed:
             assert isinstance(self.image, str)
             return self.image, self._libs_key
-        libs = _pack_libs(self.include_libs)
+        libs = pack_libs(self.include_libs)
         image = self._image(progress)
-        return image, _upload_libs(libs, backend, bucket, progress)
+        return image, upload_libs(libs, backend, bucket, progress)
 
     def _record(
-        self, progress: Progress, backend: "SdkTaskBackend", bucket: Bucket
+        self, progress: Progress, backend: SdkTaskBackend, bucket: Bucket
     ) -> dict[str, Any]:
         """Prepare the task and describe it as JSON.
 
@@ -612,7 +446,7 @@ class Task:
             "command": self.command,
             "inputs": list(self.inputs),
             "parameters": _describe_signature(self.__signature__),
-            "options": _plain_options(self._options),
+            "options": plain_options(self._options),
         }
 
     @classmethod
@@ -693,14 +527,7 @@ class Task:
             tag = self.image.tag
             if self._built is not None and self._built[0] == tag:
                 return self._built[1]
-            ref = self.image._build(
-                progress,
-                dry_run=False,
-                timeout="1h",
-                disk=None,
-                transport=_transport(),
-            )
-            assert isinstance(ref, str)
+            ref = build_image(self.image, progress)
             self._built = (tag, ref)
             return ref
 
@@ -714,7 +541,9 @@ class Task:
         and refuses a payload that does not match.
         """
         if self.command is not None:
-            script = _script(self.command, bound.inputs, key, libs_key)
+            script = task_runner.bash_script(
+                self.command, bound.inputs, key, libs_key
+            )
             if len(script.encode()) > INJECT_FILE_MAX_BYTES:
                 raise ValidationError(
                     f"{self.name}'s script and inputs are too large to "
@@ -722,14 +551,14 @@ class Task:
                     operation=_OP,
                 )
             return (
-                ["bash", f"{JOB_DIR}/run.sh"],
+                ["bash", f"{task_runner.JOB_DIR}/run.sh"],
                 {"run.sh": script.encode()},
                 None,
             )
         payload = json.dumps(
             {
                 "libs": libs_key,
-                "libs_dir": LIBS_DIR,
+                "libs_dir": task_runner.LIBS_DIR,
                 "module": self._module,
                 "qualname": self._qualname,
                 "source": self._source,
@@ -738,15 +567,15 @@ class Task:
             }
         ).encode()
         pointer = {
-            "root": MOUNT,
+            "root": task_runner.MOUNT,
             "run": key,
             "sha256": hashlib.sha256(payload).hexdigest(),
         }
         files = {
-            "runner.py": RUNNER.encode(),
+            "runner.py": task_runner.RUNNER.encode(),
             "pointer.json": json.dumps(pointer).encode(),
         }
-        return ["python3", f"{JOB_DIR}/runner.py"], files, payload
+        return ["python3", f"{task_runner.JOB_DIR}/runner.py"], files, payload
 
 
 class TaskRun:
@@ -782,14 +611,10 @@ class TaskRun:
     _bucket: Bucket
     _key: str
     _scripted: bool
-    _backend: "SdkTaskBackend"
+    _backend: SdkTaskBackend
     _project: str
     _output_path: str
     _output_uri: str
-    # Set on the run of a PrefectFlow's job: its flow run in Prefect,
-    # when it was created at submit.
-    flow_run_id: str | None = None
-    flow_run_url: str | None = None
 
     def __init__(
         self,
@@ -801,14 +626,14 @@ class TaskRun:
         bucket: Bucket,
         key: str,
         scripted: bool,
-        backend: "SdkTaskBackend",
+        backend: SdkTaskBackend,
         project: str,
     ) -> None:
         self._begin(task)
         self._name = name
         self._job = job
         self._inputs = inputs
-        self._output_path = f"{MOUNT}/{key}/files"
+        self._output_path = f"{task_runner.MOUNT}/{key}/files"
         self._output_uri = f"s3://{bucket.name}/{key}/files/"
         self._bucket = bucket
         self._key = key
@@ -863,8 +688,11 @@ class TaskRun:
             raise error
         return self
 
-    def _cancel(self) -> None:
-        """Cancel the job, or drop the run if it has none. Never raises."""
+    def cancel(self) -> None:
+        """Request cancellation of the run's job. Never raises.
+
+        A run still waiting for its inputs is dropped and never starts.
+        """
         if not self._ready.is_set():
             self._not_started(
                 TaskFailed(
@@ -879,6 +707,11 @@ class TaskRun:
             self._job.cancel(quiet=True)
         except Error:
             pass
+
+    @property
+    def project(self) -> str:
+        """The project the run's job is in."""
+        return self._settled()._project
 
     @property
     def started(self) -> bool:
@@ -1028,139 +861,6 @@ class _Bound:
     inputs: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class _Libs:
-    """The include_libs archive, its content hash, and its file count."""
-
-    data: bytes
-    digest: str
-    count: int
-
-
-class SdkTaskBackend:
-    """The task bucket: found or created with the SDK, read with S3."""
-
-    def __init__(self, profile: str | None) -> None:
-        self._profile = profile
-
-    def ensure_bucket(self, project: str) -> tuple[Bucket, bool]:
-        """Find the task bucket or create it. ``True`` when created."""
-        cache_key = (os.getpid(), self._profile or "", project)
-        with _lock:
-            found = _buckets.get(cache_key)
-        if found is not None:
-            return found, False
-        from nebius.aio.service_error import RequestError
-        from nebius.api.nebius.common.v1 import ResourceMetadata
-        from nebius.api.nebius.storage.v1 import (
-            BucketServiceClient,
-            BucketSpec,
-            CreateBucketRequest,
-            GetBucketByNameRequest,
-        )
-
-        from .session import get_sdk
-
-        name = bucket_name(project)
-        sdk: Any = get_sdk(self._profile)
-        client = BucketServiceClient(sdk)
-        lookup = GetBucketByNameRequest(parent_id=project, name=name)
-        created = False
-        try:
-            try:
-                record = client.get_by_name(lookup).wait()
-            except RequestError as exc:
-                if _code_of(exc) != "NOT_FOUND":
-                    raise
-                request = CreateBucketRequest(
-                    metadata=ResourceMetadata(
-                        parent_id=project, name=name, labels=BUCKET_LABELS
-                    ),
-                    spec=BucketSpec(),
-                )
-                try:
-                    client.create(request).wait().sync_wait()
-                    created = True
-                except RequestError as again:
-                    # Another run created it first: use that one.
-                    if _code_of(again) != "ALREADY_EXISTS":
-                        raise
-                record = client.get_by_name(lookup).wait()
-        except RequestError as exc:
-            _raise_bucket(exc, name, project)
-        bucket = Bucket(
-            id=str(record.metadata.id),
-            name=name,
-            endpoint=f"https://{record.status.domain_name}",
-            region=str(record.status.region),
-        )
-        with _lock:
-            _buckets[cache_key] = bucket
-        return bucket, created
-
-    def put(self, bucket: Bucket, key: str, data: bytes) -> None:
-        """Write one object."""
-        _s3(bucket, "PUT", key, data)
-
-    def get(self, bucket: Bucket, key: str) -> bytes | None:
-        """Read one object, or ``None`` when it does not exist."""
-        return _s3(bucket, "GET", key)
-
-    def exists(self, bucket: Bucket, key: str) -> bool:
-        """Whether the object exists."""
-        return _s3(bucket, "HEAD", key) is not None
-
-
-class MountedTaskBackend(SdkTaskBackend):
-    """The task bucket where it is already mounted, read as files.
-
-    Used inside a task's job, when that task starts other tasks. The
-    job needs no S3 credentials. The bucket is still found with the
-    SDK, because a new job mounts it by id.
-    """
-
-    def __init__(self, profile: str | None, root: Path) -> None:
-        super().__init__(profile)
-        self._root = root
-
-    def put(self, bucket: Bucket, key: str, data: bytes) -> None:
-        """Write one object as a file."""
-        path = self._root / key
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-
-    def get(self, bucket: Bucket, key: str) -> bytes | None:
-        """Read one object, or ``None`` when it does not exist."""
-        try:
-            return (self._root / key).read_bytes()
-        except (FileNotFoundError, NotADirectoryError):
-            return None
-
-    def exists(self, bucket: Bucket, key: str) -> bool:
-        """Whether the object exists."""
-        return (self._root / key).is_file()
-
-
-def _run_key(
-    task: str, run_name: str, job_name: str, folder: str | None = None
-) -> str:
-    """The folder of one run in the bucket.
-
-    In a pipeline: ``flows/<pipeline>/<run>/<task>``, where ``<task>``
-    is the name of the task's job, such as
-    ``train-baseline-20261125-121050``.
-    The pipeline passes its run's folder, or its flow job sets it in
-    ``NS_TASK_FOLDER``. A task run on its own has no pipeline:
-    ``tasks/<task name>/<UTC time>``.
-    """
-    if folder is None:
-        folder = os.environ.get(FOLDER_ENV, "")
-    folder = folder.strip("/")
-    if folder:
-        return f"{folder}/{job_name}"
-    return f"tasks/{task}/{run_name}"
-
-
 def _has_runs(value: object) -> bool:
     """Whether a run is among the arguments, at any depth."""
     if isinstance(value, TaskRun):
@@ -1187,35 +887,12 @@ def _resolved(value: Any) -> Any:
     return value
 
 
-def bucket_name(project: str) -> str:
-    """The task bucket's name: a fixed prefix plus the project id."""
-    return BUCKET_PREFIX + project.removeprefix("project-")
-
-
-def forget_buckets() -> None:
-    """Drop cached bucket lookups (tests, or after a manual delete)."""
-    with _lock:
-        _buckets.clear()
-
-
-def _backend(profile: str | None) -> SdkTaskBackend:
-    """S3 from outside a job; the mounted folder from inside one."""
-    root = os.environ.get(MOUNT_ENV)
-    if root and Path(root).is_dir():
-        return MountedTaskBackend(profile, Path(root))
-    return SdkTaskBackend(profile)
-
-
-def _transport() -> Transport | None:
+def job_transport() -> Transport | None:
     """The transport for job calls. ``None`` is the SDK. Tests replace it."""
     return None
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _say(progress: Progress, message: str) -> None:
+def say(progress: Progress, message: str) -> None:
     report(Status(kind="task", message=message), progress)
 
 
@@ -1245,116 +922,6 @@ def console_url(project: str, job_id: str) -> str | None:
     if not template:
         return None
     return template.replace("{project}", project).replace("{job}", job_id)
-
-
-def _shown(value: object) -> str:
-    """One value as inline code for Markdown, cut when it is long.
-
-    A string is shown as it is; any other value as JSON.
-    """
-    if isinstance(value, str):
-        text = value
-    else:
-        try:
-            text = json.dumps(value, default=str)
-        except (TypeError, ValueError):
-            text = repr(value)
-    text = " ".join(text.split())
-    if len(text) > _SHOWN_MAX:
-        text = text[:_SHOWN_MAX] + " ... (cut)"
-    if text == "":
-        return "(empty)"
-    fence = "``" if "`" in text else "`"
-    pad = " " if "`" in text else ""
-    return f"{fence}{pad}{text}{pad}{fence}"
-
-
-def _values_markdown(title: str, value: object) -> str:
-    """Inputs or outputs as a Markdown list, one line per name.
-
-    A dict gives one line per key. Any other value gives one line.
-    """
-    if isinstance(value, dict):
-        lines = [f"- {key}: {_shown(item)}" for key, item in value.items()]
-        if not lines:
-            lines = ["- (none)"]
-    else:
-        lines = [f"- Value: {_shown(value)}"]
-    return "\n".join([f"### {title}", "", *lines])
-
-
-def _job_markdown(run: "TaskRun") -> str:
-    """A run's Nebius job, for the Prefect artifact ``nebius-job``."""
-    job = run.job
-    url = console_url(run._project, job.id)
-    opened = f" ([open in the console]({url}))" if url else ""
-    return "\n".join(
-        [
-            f"### Nebius job of `{run.task}`",
-            "",
-            f"- Job: `{job.id}`{opened}",
-            f"- Name: `{run.task}-{run.name}`",
-            f"- Logs: `nebius ai job logs {job.id}`",
-            f"- Files: `{run.output_uri}`",
-        ]
-    )
-
-
-def _show_started(run: "TaskRun") -> None:
-    """Show a run's job and inputs in the Prefect task run.
-
-    Writes the Markdown artifacts ``nebius-job`` and ``inputs``, and
-    the same to the log. Does nothing outside a Prefect run, and never
-    fails the task.
-    """
-    try:
-        from prefect import (  # type: ignore[import-not-found]
-            get_run_logger,
-        )
-        from prefect.artifacts import (  # type: ignore[import-not-found]
-            create_markdown_artifact,
-        )
-
-        logger = get_run_logger()
-        url = console_url(run._project, run.job.id)
-        where = f" {url}" if url else ""
-        logger.info("Nebius job %s%s", run.job.id, where)
-        logger.info("Inputs: %s", json.dumps(run.inputs, default=str))
-        create_markdown_artifact(
-            markdown=_job_markdown(run),
-            key=JOB_ARTIFACT,
-            description=f"Nebius job {run.job.id} of {run.task}",
-        )
-        create_markdown_artifact(
-            markdown=_values_markdown(f"Inputs of `{run.task}`", run.inputs),
-            key=INPUTS_ARTIFACT,
-            description=f"Inputs of {run.task}",
-        )
-    except Exception:
-        pass
-
-
-def _show_finished(run: "TaskRun", value: object) -> None:
-    """Show a run's outputs in the Prefect task run. Never fails.
-
-    Writes the Markdown artifact ``outputs``, and the same to the log.
-    """
-    try:
-        from prefect import (  # type: ignore[import-not-found]
-            get_run_logger,
-        )
-        from prefect.artifacts import (  # type: ignore[import-not-found]
-            create_markdown_artifact,
-        )
-
-        get_run_logger().info("Outputs: %s", json.dumps(value, default=str))
-        create_markdown_artifact(
-            markdown=_values_markdown(f"Outputs of `{run.task}`", value),
-            key=OUTPUTS_ARTIFACT,
-            description=f"Outputs of {run.task}",
-        )
-    except Exception:
-        pass
 
 
 def _describe_signature(signature: inspect.Signature) -> list[dict[str, Any]]:
@@ -1395,7 +962,7 @@ def _signature_from(parameters: object) -> inspect.Signature:
     return inspect.Signature(built)
 
 
-def _plain_options(options: Mapping[str, Any]) -> dict[str, Any]:
+def plain_options(options: Mapping[str, Any]) -> dict[str, Any]:
     """Job options as JSON values, for a record."""
     plain = dict(options)
     timeout = plain.get("timeout")
@@ -1411,24 +978,7 @@ def _plain_options(options: Mapping[str, Any]) -> dict[str, Any]:
     return plain
 
 
-def _upload_libs(
-    libs: "_Libs | None",
-    backend: "SdkTaskBackend",
-    bucket: Bucket,
-    progress: Progress,
-    what: str = "include_libs",
-) -> str | None:
-    """Upload an archive unless the bucket has it. Returns its key."""
-    if libs is None:
-        return None
-    key = f"libs/{libs.digest}.tar.gz"
-    if not backend.exists(bucket, key):
-        backend.put(bucket, key, libs.data)
-        _say(progress, f"Uploaded {what} ({libs.count} files).")
-    return key
-
-
-def _plain_name(text: object) -> str:
+def plain_name(text: object) -> str:
     """Lowercase letters, digits and hyphens, at most 40 characters."""
     if not isinstance(text, str):
         raise ValidationError("name must be text.", operation=_OP)
@@ -1441,17 +991,7 @@ def _plain_name(text: object) -> str:
     return plain
 
 
-def _run_name(task: str) -> str:
-    """The UTC time to the second, with a counter for a repeat."""
-    stamp = _now().strftime("%Y%m%d-%H%M%S")
-    with _lock:
-        last, count = _stamps.get(task, ("", 0))
-        count = count + 1 if last == stamp else 1
-        _stamps[task] = (stamp, count)
-    return stamp if count == 1 else f"{stamp}-{count}"
-
-
-def _validate_options(options: dict[str, Any]) -> dict[str, Any]:
+def validate_options(options: dict[str, Any]) -> dict[str, Any]:
     """Check the job options now, so a mistake does not wait for a run."""
     if "inject_files" in options:
         raise ValidationError(
@@ -1469,279 +1009,6 @@ def _validate_options(options: dict[str, Any]) -> dict[str, Any]:
     return checked
 
 
-def _validate_libs(names: object) -> tuple[str, ...]:
-    if isinstance(names, str) or not isinstance(names, Sequence):
-        raise ValidationError(
-            'include_libs must be a list of import names, such as ["tasks"].',
-            operation=_OP,
-        )
-    for name in names:
-        if not isinstance(name, str) or not _LIB_NAME.fullmatch(name):
-            raise ValidationError(
-                f"include_libs takes import names such as 'tasks' or "
-                f"'tasks.training', not {name!r}.",
-                operation=_OP,
-            )
-        _lib_files(name)
-    return tuple(names)
-
-
-def _covered(module: str, libs: Sequence[str]) -> bool:
-    return any(
-        module == name or module.startswith(name + ".") for name in libs
-    )
-
-
-def _lib_files(name: str) -> list[tuple[str, Path]]:
-    """The files one import name stands for, as ``(archive name, path)``.
-
-    The top-level name is found the way an import finds it, and the
-    rest is walked on disk, so the library's code is not run.
-    """
-    top, *rest = name.split(".")
-    try:
-        spec = importlib.util.find_spec(top)
-    except (ImportError, ValueError):
-        spec = None
-    if spec is None:
-        raise ValidationError(
-            f"include_libs: {top!r} cannot be imported here. Run from "
-            "the folder that contains it, or add that folder to "
-            "sys.path.",
-            operation=_OP,
-        )
-    if spec.submodule_search_locations:
-        current = Path(list(spec.submodule_search_locations)[0])
-    elif spec.origin and spec.origin.endswith(".py"):
-        current = Path(spec.origin)
-    else:
-        raise ValidationError(
-            f"include_libs: {top!r} is not a local Python package or module.",
-            operation=_OP,
-        )
-    current = current.resolve()
-    if _installed(current):
-        raise ValidationError(
-            f"include_libs: {top!r} is an installed package. Install it "
-            "in the image instead.",
-            operation=_OP,
-        )
-    base = current.parent
-    files: list[Path] = []
-    for part in rest:
-        if not current.is_dir():
-            raise ValidationError(
-                f"include_libs: {name!r} was not found.", operation=_OP
-            )
-        init = current / "__init__.py"
-        if init.is_file():
-            files.append(init)
-        folder = current / part
-        current = folder if folder.is_dir() else folder.with_suffix(".py")
-    if current.is_dir():
-        files.extend(
-            path
-            for path in sorted(current.rglob("*"))
-            if path.is_file() and _sendable(path.relative_to(current))
-        )
-    elif current.is_file():
-        files.append(current)
-    else:
-        raise ValidationError(
-            f"include_libs: {name!r} was not found.", operation=_OP
-        )
-    return [(path.relative_to(base).as_posix(), path) for path in files]
-
-
-def _installed(path: Path) -> bool:
-    parts = set(path.parts)
-    if "site-packages" in parts or "dist-packages" in parts:
-        return True
-    stdlib = sysconfig.get_paths().get("stdlib")
-    return bool(stdlib) and Path(str(stdlib)).resolve() in path.parents
-
-
-def _sendable(relative: Path) -> bool:
-    if relative.suffix in (".pyc", ".pyo"):
-        return False
-    return not any(
-        part == "__pycache__" or part.startswith(".")
-        for part in relative.parts
-    )
-
-
-def _pack_libs(names: Sequence[str]) -> _Libs | None:
-    """One tar.gz of the libs, the same bytes for the same files."""
-    if not names:
-        return None
-    files: dict[str, Path] = {}
-    for name in names:
-        files.update(_lib_files(name))
-    return _pack_files(files)
-
-
-def _pack_files(files: Mapping[str, Path]) -> _Libs:
-    """One tar.gz of ``archive name: path``, in a fixed order."""
-    buffer = io.BytesIO()
-    with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0) as zipped:
-        with tarfile.open(fileobj=zipped, mode="w") as archive:
-            for arcname in sorted(files):
-                content = files[arcname].read_bytes()
-                info = tarfile.TarInfo(arcname)
-                info.size = len(content)
-                info.mode = 0o644
-                archive.addfile(info, io.BytesIO(content))
-    data = buffer.getvalue()
-    digest = hashlib.sha256(data).hexdigest()[:16]
-    return _Libs(data=data, digest=digest, count=len(files))
-
-
-def _function_source(
-    function: Callable[..., Any],
-    *,
-    allowed: Iterable[str] = (),
-    strip_decorators: bool = False,
-) -> str:
-    """The function's source, checked to stand on its own in the job.
-
-    ``allowed`` names from the surrounding file are let through; the
-    caller sends them another way. ``strip_decorators`` drops the
-    decorators instead of refusing them.
-    """
-    permitted = set(allowed)
-    name = function.__name__
-    try:
-        text = textwrap.dedent(inspect.getsource(function))
-        tree = ast.parse(text)
-    except (OSError, TypeError, SyntaxError):
-        raise ValidationError(
-            f"The source of {name} cannot be read, so it cannot be "
-            "sent. Define it in a file, or put it in a package listed "
-            "in include_libs.",
-            operation=_OP,
-        ) from None
-    node = tree.body[0] if tree.body else None
-    if not isinstance(node, ast.FunctionDef):
-        raise ValidationError(
-            f"{name} must be defined with def to be sent as source.",
-            operation=_OP,
-        )
-    if node.decorator_list and strip_decorators:
-        node.decorator_list = []
-    if node.decorator_list:
-        raise ValidationError(
-            f"{name} has a decorator, which cannot be sent with it. "
-            "Put it in a package listed in include_libs.",
-            operation=_OP,
-        )
-    if getattr(function, "__closure__", None):
-        raise ValidationError(
-            f"{name} uses variables of an enclosing function, which "
-            "are not sent with it.",
-            operation=_OP,
-        )
-    code = getattr(function, "__code__", None)
-    outside = sorted(
-        item
-        for item in (_globals_used(code) if code is not None else ())
-        if not hasattr(builtins, item)
-        and item != name
-        and item not in permitted
-    )
-    if outside:
-        raise ValidationError(
-            f"{name} uses names from the surrounding file: "
-            f"{', '.join(outside)}. Its source is sent on its own, so "
-            "put imports and helpers inside the function, or put the "
-            "function in a package listed in include_libs.",
-            operation=_OP,
-        )
-    # Annotations may name things the job does not have.
-    node.returns = None
-    arguments = node.args
-    for argument in (
-        *arguments.posonlyargs,
-        *arguments.args,
-        *arguments.kwonlyargs,
-        arguments.vararg,
-        arguments.kwarg,
-    ):
-        if argument is not None:
-            argument.annotation = None
-    return ast.unparse(node) + "\n"
-
-
-def _globals_used(code: CodeType) -> set[str]:
-    names = {
-        str(instruction.argval)
-        for instruction in dis.get_instructions(code)
-        if instruction.opname == "LOAD_GLOBAL"
-    }
-    for constant in code.co_consts:
-        if isinstance(constant, CodeType):
-            names |= _globals_used(constant)
-    return names
-
-
-def _script(
-    command: str,
-    inputs: Mapping[str, Any],
-    key: str,
-    libs_key: str | None,
-) -> str:
-    """The bash script the job runs: the arrays, a trap, then ``command``.
-
-    The trap writes the exit code and ``outputs`` as NUL-separated text
-    when the script ends, however it ends.
-    """
-    pairs = " ".join(
-        f"[{name}]={shlex.quote(_shell_text(value))}"
-        for name, value in inputs.items()
-    )
-    lines = [
-        "#!/usr/bin/env bash",
-        f"declare -A inputs=({pairs})",
-        "declare -A outputs=()",
-        f"__ns_run={shlex.quote(f'{MOUNT}/{key}')}",
-        'export NS_OUTPUT_DIR="$__ns_run/files"',
-        f"export {MOUNT_ENV}={shlex.quote(MOUNT)}",
-        "set -e",
-        'mkdir -p "$NS_OUTPUT_DIR"',
-        "__ns_finish() {",
-        "    local code=$? key",
-        "    {",
-        "        printf '%s\\0' \"$code\"",
-        '        for key in "${!outputs[@]}"; do',
-        '            printf \'%s\\0%s\\0\' "$key" "${outputs[$key]}"',
-        "        done",
-        '    } > "$__ns_run/outputs.bin"',
-        '    exit "$code"',
-        "}",
-        "trap __ns_finish EXIT",
-    ]
-    if libs_key is not None:
-        folder = shlex.quote(LIBS_DIR)
-        lines += [
-            f"mkdir -p {folder}",
-            f"tar -xzf {shlex.quote(f'{MOUNT}/{libs_key}')} -C {folder}",
-            f'export PYTHONPATH={folder}"${{PYTHONPATH:+:$PYTHONPATH}}"',
-        ]
-    return "\n".join([*lines, "", command, ""])
-
-
-def _shell_text(value: object) -> str:
-    """A string as it is; any other JSON value as JSON text."""
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, allow_nan=False)
-    except (TypeError, ValueError) as exc:
-        raise ValidationError(
-            f"A command's inputs must be JSON values: {exc}.",
-            operation=_OP,
-        ) from None
-
-
 @contextmanager
 def _staged(files: Mapping[str, bytes]) -> Iterator[Path]:
     """The generated files on disk until the create has read them."""
@@ -1752,147 +1019,80 @@ def _staged(files: Mapping[str, bytes]) -> Iterator[Path]:
         yield root
 
 
-def _code_of(exc: object) -> str:
-    status = getattr(exc, "status", None)
-    return str(getattr(getattr(status, "code", None), "name", "") or "")
+def build_image(image: Image | str, progress: Progress) -> str:
+    """The reference of ``image``: built first when it is an ``Image``."""
+    if isinstance(image, str):
+        return image
+    ref = image._build(
+        progress,
+        dry_run=False,
+        timeout="1h",
+        disk=None,
+        transport=job_transport(),
+    )
+    assert isinstance(ref, str)
+    return ref
 
 
-def _raise_bucket(exc: object, name: str, project: str) -> None:
-    code = _code_of(exc) or None
-    if code in {"UNAUTHENTICATED", "PERMISSION_DENIED"}:
-        raise AccessError(
-            f"Not allowed to find or create the bucket {name} in "
-            f"project {project}.",
-            operation="task",
-            project=project,
-            recovery=(
-                "A task needs rights to manage Object Storage buckets "
-                "in this project. Run ns.whoami() to see the account "
-                "in use."
-            ),
-            status_code=code,
-        ) from None
-    raise TransportError(
-        f"Could not find or create the bucket {name} ({code or 'unknown'}).",
-        operation="task",
-        project=project,
-        recovery="Run the task again.",
-        status_code=code,
-    ) from None
+def start_run(
+    task: Task,
+    args: Sequence[Any] = (),
+    kwargs: Mapping[str, Any] | None = None,
+    *,
+    folder: str | None = None,
+) -> TaskRun:
+    """``task.submit(*args, **kwargs)``, with the run kept in ``folder``.
+
+    ``folder`` is a pipeline run's folder in the bucket. The run's own
+    folder is ``<folder>/<job name>``. Without it, ``NS_TASK_FOLDER``
+    is used when set, and ``tasks/<task>/<UTC time>`` otherwise.
+    """
+    return task._start(tuple(args), dict(kwargs or {}), folder=folder)
 
 
-def _s3_credentials() -> tuple[str, str, str | None]:
-    """Access key, secret and optional session token. Never logged."""
-    access = os.environ.get("AWS_ACCESS_KEY_ID")
-    secret = os.environ.get("AWS_SECRET_ACCESS_KEY")
-    if access and secret:
-        return access, secret, os.environ.get("AWS_SESSION_TOKEN") or None
-    path = Path(
-        os.environ.get("AWS_SHARED_CREDENTIALS_FILE", "~/.aws/credentials")
-    ).expanduser()
-    profile = os.environ.get("AWS_PROFILE", "default")
-    parser = configparser.RawConfigParser()
-    try:
-        parser.read(path)
-    except configparser.Error:
-        pass
-    if parser.has_section(profile):
-        access = parser.get(profile, "aws_access_key_id", fallback=None)
-        secret = parser.get(profile, "aws_secret_access_key", fallback=None)
-        token = parser.get(profile, "aws_session_token", fallback=None)
-        if access and secret:
-            return access, secret, token or None
-    raise AccessError(
-        "No S3 credentials were found, so the task bucket cannot be "
-        "read or written from this machine.",
-        operation="task",
-        recovery=(
-            "Create an Object Storage access key and put it in "
-            f"{path} under [{profile}], or set AWS_ACCESS_KEY_ID and "
-            "AWS_SECRET_ACCESS_KEY."
-        ),
+def submit_run(
+    task: Task,
+    args: Sequence[Any],
+    kwargs: Mapping[str, Any],
+    progress: Progress,
+    *,
+    run_name: str | None = None,
+    job_name: str | None = None,
+    key: str | None = None,
+) -> TaskRun:
+    """Start one run with its names given: its time stamp, its job's
+    name, and its folder in the bucket. The arguments must not hold
+    other runs."""
+    return task._submit(
+        tuple(args),
+        dict(kwargs),
+        progress,
+        run_name=run_name,
+        job_name=job_name,
+        key=key,
     )
 
 
-def _s3(
-    bucket: Bucket, method: str, key: str, body: bytes = b""
-) -> bytes | None:
-    """One signed S3 request. ``None`` when the object does not exist."""
-    access, secret, token = _s3_credentials()
-    host = bucket.endpoint.removeprefix("https://")
-    path = "/" + urllib.parse.quote(f"{bucket.name}/{key}", safe="/-_.~")
-    now = _now()
-    stamp = now.strftime("%Y%m%dT%H%M%SZ")
-    day = now.strftime("%Y%m%d")
-    digest = hashlib.sha256(body).hexdigest()
-    headers = {
-        "host": host,
-        "x-amz-content-sha256": digest,
-        "x-amz-date": stamp,
-    }
-    if token:
-        headers["x-amz-security-token"] = token
-    signed = ";".join(sorted(headers))
-    canonical = "\n".join(
-        [
-            method,
-            path,
-            "",
-            *(f"{name}:{headers[name]}" for name in sorted(headers)),
-            "",
-            signed,
-            digest,
-        ]
-    )
-    scope = f"{day}/{bucket.region}/s3/aws4_request"
-    to_sign = "\n".join(
-        [
-            "AWS4-HMAC-SHA256",
-            stamp,
-            scope,
-            hashlib.sha256(canonical.encode()).hexdigest(),
-        ]
-    )
-    signing = f"AWS4{secret}".encode()
-    for part in (day, bucket.region, "s3", "aws4_request"):
-        signing = hmac.new(signing, part.encode(), hashlib.sha256).digest()
-    signature = hmac.new(signing, to_sign.encode(), hashlib.sha256)
-    headers["Authorization"] = (
-        f"AWS4-HMAC-SHA256 Credential={access}/{scope}, "
-        f"SignedHeaders={signed}, Signature={signature.hexdigest()}"
-    )
-    del headers["host"]
-    request = urllib.request.Request(
-        bucket.endpoint + path,
-        data=body if method == "PUT" else None,
-        method=method,
-        headers=headers,
-    )
-    what = f"{method} s3://{bucket.name}/{key}"
-    try:
-        with urllib.request.urlopen(request, timeout=_S3_TIMEOUT) as reply:
-            return bytes(reply.read())
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        if exc.code in (401, 403):
-            raise AccessError(
-                f"The S3 credentials on this machine were refused "
-                f"({what}, HTTP {exc.code}).",
-                operation="task",
-                recovery=(
-                    "Use an Object Storage access key that can read and "
-                    f"write the bucket {bucket.name}."
-                ),
-            ) from None
-        raise TransportError(
-            f"The task bucket request failed ({what}, HTTP {exc.code}).",
-            operation="task",
-            recovery="Run the task again.",
-        ) from None
-    except (urllib.error.URLError, OSError) as exc:
-        raise TransportError(
-            f"The task bucket could not be reached ({what}): {exc}.",
-            operation="task",
-            recovery="Check the network and run the task again.",
-        ) from None
+def prepare_task(
+    task: Task, progress: Progress, storage: SdkTaskBackend, bucket: Bucket
+) -> None:
+    """Build the task's image and upload its libraries, when needed."""
+    task._prepare(progress, storage, bucket)
+
+
+def task_record(
+    task: Task, progress: Progress, storage: SdkTaskBackend, bucket: Bucket
+) -> dict[str, Any]:
+    """Prepare the task and describe it as JSON.
+
+    The record holds the built image's reference, the key of the
+    uploaded libraries, the function's source or import name, and the
+    job options: enough to start the task's job where its code and
+    Dockerfile are not present. ``task_from_record`` reverses it.
+    """
+    return task._record(progress, storage, bucket)
+
+
+def task_from_record(record: Mapping[str, Any]) -> Task:
+    """A task made from a record. It needs no local code to submit."""
+    return Task._from_record(record)

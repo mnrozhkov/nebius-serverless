@@ -4,16 +4,16 @@
 same function can be called on your machine or sent to a job.
 
 It uses the data, model and helper modules of this library. They are
-available in a job because the whole ``src`` package is sent with
+available in a job because the whole ``lib`` package is sent with
 ``include_libs``.
 
 ``torch`` is imported inside the functions, not at the top, so the
 module can be imported on a machine that does not have ``torch``.
 """
 
-from src.common import output_dir, save_torch
-from src.data.mnist import load_split
-from src.models.small_cnn import build_model
+from lib.common import output_dir, save_torch
+from lib.data.mnist import load_split
+from lib.models.small_cnn import build_model
 
 MOMENTUM = 0.9
 

@@ -7,7 +7,7 @@ this module can be imported on a machine that has neither.
 import tempfile
 from pathlib import Path
 
-from src.common import copy_file, output_dir
+from lib.common import copy_file, output_dir
 
 FOLDER = "MNIST/raw"
 MEAN = 0.1307

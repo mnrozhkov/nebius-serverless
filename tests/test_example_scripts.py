@@ -11,6 +11,7 @@ from types import ModuleType
 import pytest
 
 import nebius_serverless as ns
+from nebius_serverless.integrations.prefect import PrefectFlow
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples"
@@ -213,7 +214,7 @@ def test_flow_quickstart_submits_the_pipeline(
 ) -> None:
     module = _load_module(EXAMPLES / "quickstarts" / "flow_quickstart.py")
     monkeypatch.setenv("PREFECT_API_URL", "https://prefect.example.com/api")
-    submitted: list[ns.PrefectFlow] = []
+    submitted: list[PrefectFlow] = []
 
     class _FakeFlowRun:
         def __init__(self, value: object) -> None:
@@ -222,12 +223,12 @@ def test_flow_quickstart_submits_the_pipeline(
         def result(self) -> object:
             return self.value
 
-    def fake_flow_submit(self: ns.PrefectFlow, **kwargs: object) -> object:
+    def fake_flow_submit(self: PrefectFlow, **kwargs: object) -> object:
         submitted.append(self)
         return _FakeFlowRun(self.function(**kwargs))
 
     monkeypatch.setattr(module.ns.Task, "submit", _fake_submit)
-    monkeypatch.setattr(module.ns.PrefectFlow, "submit", fake_flow_submit)
+    monkeypatch.setattr(module.PrefectFlow, "submit", fake_flow_submit)
     module.main()
     assert len(submitted) == 1
     assert submitted[0].flow_name == "sum-of-squares"

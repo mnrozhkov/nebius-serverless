@@ -1,8 +1,9 @@
 """The tasks and constants of the MNIST baseline experiment.
 
-``train.py`` imports them from here. Run it from this folder: the tasks
-send the local package ``src`` with ``include_libs=["src"]``, which is
-found the same way ``import src`` finds it.
+``train.py`` and ``train_prefect.py`` import them from here. Run those
+from this folder: the tasks send the local package ``lib`` with
+``include_libs=["lib"]``, which is found the same way ``import lib``
+finds it.
 
 The training tasks share one image, built from ``DOCKERFILE`` on the
 first run and reused after that. ``aggregate`` needs only Python and
@@ -16,19 +17,12 @@ uses a public image.
   CPU job. Its result is the experiment's result.
 """
 
-import os
-
-from src.data.mnist import prepare_data
+from lib.data.mnist import prepare_data
 
 import nebius_serverless as ns
 
 EXPERIMENT = "mnist-baseline"
 LEARNING_RATES = [0.3, 0.1, 0.03, 0.01]
-
-# The API address of the Prefect server, such as
-# https://prefect.example.com/api. It is read from the environment, so
-# that no server address is kept in this file.
-PREFECT_API_URL = os.environ.get("PREFECT_API_URL")
 
 DOCKERFILE = """
 FROM python:3.12-slim-bookworm
@@ -59,12 +53,12 @@ gpu_check = ns.Task(
     """,
 )
 
-# A function from the package ``src``: the job imports it by name.
+# A function from the package ``lib``: the job imports it by name.
 prepare = ns.Task(
     prepare_data,
     name="prepare-data",
     image=image_torch,
-    include_libs=["src"],
+    include_libs=["lib"],
     timeout="30m",
 )
 
@@ -73,20 +67,20 @@ def train_step(
     exp_name: str, data_dir: str, lr: float, epochs: int
 ) -> dict[str, object]:
     """Train the baseline model with one learning rate."""
-    from src.training.baseline import train_baseline
+    from lib.training.baseline import train_baseline
 
     return train_baseline(
         exp_name=exp_name, data_dir=data_dir, lr=lr, epochs=epochs
     )
 
 
-# A function defined here: its source is sent, so it imports from ``src``
+# A function defined here: its source is sent, so it imports from ``lib``
 # inside its body.
 train = ns.Task(
     train_step,
     name="train-baseline",
     image=image_torch,
-    include_libs=["src"],
+    include_libs=["lib"],
     gpu="h100",
     pricing="spot",
     timeout="2h",
@@ -96,7 +90,7 @@ train = ns.Task(
 def evaluate_step(
     trained: dict[str, object], data_dir: str
 ) -> dict[str, object]:
-    from src.evaluation.accuracy import evaluate
+    from lib.evaluation.accuracy import evaluate
 
     return evaluate(checkpoint=trained["checkpoint"], data_dir=data_dir)
 
@@ -105,7 +99,7 @@ evaluate = ns.Task(
     evaluate_step,
     name="evaluate",
     image=image_torch,
-    include_libs=["src"],
+    include_libs=["lib"],
     gpu="h100",
     timeout="30m",
 )

@@ -15,8 +15,10 @@ from fakes import FakeTransport
 
 import nebius_serverless as ns
 from nebius_serverless import task as task_module
+from nebius_serverless import task_runner as runner_module
+from nebius_serverless import task_storage as storage_module
 from nebius_serverless.image import Image
-from nebius_serverless.task import Bucket
+from nebius_serverless.task_storage import Bucket
 from nebius_serverless.transport import CreateResult
 
 IMAGE = "python:3.12-slim"
@@ -120,15 +122,15 @@ needs_bash = pytest.mark.skipif(
 @pytest.fixture(autouse=True)
 def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     ns.configure(project="project-1", region="eu-north1")
-    monkeypatch.setattr(task_module, "MOUNT", str(tmp_path / "bucket"))
-    monkeypatch.setattr(task_module, "LIBS_DIR", str(tmp_path / "libs"))
+    monkeypatch.setattr(runner_module, "MOUNT", str(tmp_path / "bucket"))
+    monkeypatch.setattr(runner_module, "LIBS_DIR", str(tmp_path / "libs"))
     monkeypatch.setattr(task_module, "RESULT_PAUSE", 0.0)
     monkeypatch.setattr(
-        task_module,
+        runner_module,
         "_now",
         lambda: datetime(2026, 11, 24, 15, 39, 22, tzinfo=timezone.utc),
     )
-    task_module._stamps.clear()
+    runner_module._stamps.clear()
     yield
     ns.configure()
 
@@ -136,7 +138,7 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 @pytest.fixture
 def backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
     fake = FakeBackend(tmp_path / "bucket")
-    monkeypatch.setattr(task_module, "_backend", lambda profile: fake)
+    monkeypatch.setattr(storage_module, "backend", lambda profile: fake)
     return fake
 
 
@@ -145,7 +147,7 @@ def transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> RunningTransport:
     fake = RunningTransport(tmp_path / "containers")
-    monkeypatch.setattr(task_module, "_transport", lambda: fake)
+    monkeypatch.setattr(task_module, "job_transport", lambda: fake)
     return fake
 
 
@@ -281,7 +283,7 @@ def test_a_function_runs_and_returns_its_value(
     assert spec["volumes"] == [
         {
             "source": BUCKET.id,
-            "container_path": task_module.MOUNT,
+            "container_path": runner_module.MOUNT,
             "mode": "rw",
         }
     ]
@@ -299,7 +301,7 @@ def test_submit_returns_a_run_with_its_inputs_and_folder(
     assert run.job.id == "job-1"
     assert run.inputs == {"x": 4, "times": 5}
     key = f"tasks/double/{STAMP}/files"
-    assert run.output_path == f"{task_module.MOUNT}/{key}"
+    assert run.output_path == f"{runner_module.MOUNT}/{key}"
     assert run.output_uri == f"s3://{BUCKET.name}/{key}/"
     assert run.result() == 20
     assert run.result() == 20
@@ -371,7 +373,7 @@ def test_an_imported_function_is_run_by_name(
     assert task(6) == 18
     # The archive is uploaded once and has no cache files.
     assert len(_libs(backend)) == 1
-    unpacked = Path(task_module.LIBS_DIR) / "demo_pkg"
+    unpacked = Path(runner_module.LIBS_DIR) / "demo_pkg"
     assert (unpacked / "mathx.py").is_file()
     assert not (unpacked / "__pycache__" / "junk.pyc").exists()
 
@@ -391,7 +393,7 @@ def test_a_part_of_a_package_keeps_its_import_name(
 ) -> None:
     task = ns.Task(unpacks, image=IMAGE, include_libs=["demo_pkg.sub"])
     assert task(1) == 2
-    unpacked = Path(task_module.LIBS_DIR) / "demo_pkg"
+    unpacked = Path(runner_module.LIBS_DIR) / "demo_pkg"
     assert (unpacked / "__init__.py").is_file()
     assert (unpacked / "sub" / "deep.py").is_file()
     assert not (unpacked / "mathx.py").exists()
@@ -528,84 +530,6 @@ def test_ctrl_c_cancels_the_job(
     assert transport.cancels == ["job-1"]
 
 
-def test_to_prefect_keeps_the_name_signature_and_result(
-    backend: FakeBackend, transport: RunningTransport
-) -> None:
-    pytest.importorskip("prefect")
-    wrapped = ns.Task(double, name="Double It", image=IMAGE).to_prefect(
-        retries=2
-    )
-    assert wrapped.name == "double-it"
-    assert wrapped.retries == 2
-    assert str(inspect.signature(wrapped.fn)) == "(x, times=2)"
-    assert wrapped.fn(21) == 42
-    assert transport.bodies[0]["metadata"] == {
-        "parent_id": "project-1",
-        "name": f"double-it-{STAMP}",
-    }
-
-
-def test_a_prefect_task_run_shows_its_job_and_inputs(
-    backend: FakeBackend,
-    transport: RunningTransport,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    run = ns.Task(double, image=IMAGE).submit(4, times=5)
-    monkeypatch.delenv(task_module.CONSOLE_ENV, raising=False)
-    shown = task_module._job_markdown(run)
-    assert "- Job: `job-1`\n" in shown
-    assert f"- Name: `double-{STAMP}`" in shown
-    assert "- Logs: `nebius ai job logs job-1`" in shown
-    assert f"- Files: `{run.output_uri}`" in shown
-    inputs = task_module._values_markdown("Inputs of `double`", run.inputs)
-    assert inputs == "### Inputs of `double`\n\n- x: `4`\n- times: `5`"
-    assert task_module.console_url("project-1", "job-1") is None
-
-    monkeypatch.setenv(
-        task_module.CONSOLE_ENV, "https://console.test/{project}/jobs/{job}"
-    )
-    link = "https://console.test/project-1/jobs/job-1"
-    assert task_module.console_url("project-1", "job-1") == link
-    assert f"([open in the console]({link}))" in task_module._job_markdown(run)
-
-    assert task_module.JOB_ARTIFACT == "nebius-job"
-    assert task_module.INPUTS_ARTIFACT == "inputs"
-    assert task_module.OUTPUTS_ARTIFACT == "outputs"
-
-    shown = task_module._values_markdown
-    outputs = shown(
-        "Outputs",
-        {
-            "path": "/ns/tasks/a/files/model.pt",
-            "loss": 0.25,
-            "ok": True,
-            "tags": ["a", "b"],
-            "note": "",
-            "code": "a `b` c",
-        },
-    )
-    assert outputs.splitlines()[2:] == [
-        "- path: `/ns/tasks/a/files/model.pt`",
-        "- loss: `0.25`",
-        "- ok: `true`",
-        '- tags: `["a", "b"]`',
-        "- note: (empty)",
-        "- code: `` a `b` c ``",
-    ]
-    assert shown("Outputs", 9).endswith("- Value: `9`")
-    assert shown("Inputs", {}).endswith("- (none)")
-    assert shown("Outputs", list(range(2000))).endswith("... (cut)`")
-    # Outside a Prefect run these do nothing and do not fail.
-    task_module._show_started(run)
-    task_module._show_finished(run, {"a": 1})
-
-
-def test_to_prefect_needs_prefect(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(sys.modules, "prefect", None)
-    with pytest.raises(ns.ValidationError, match="needs the prefect"):
-        ns.Task(double, image=IMAGE).to_prefect()
-
-
 def mount_seen() -> str:
     import os
 
@@ -615,7 +539,7 @@ def mount_seen() -> str:
 def test_a_job_knows_where_the_bucket_is_mounted(
     backend: FakeBackend, transport: RunningTransport
 ) -> None:
-    assert ns.Task(mount_seen, image=IMAGE)() == task_module.MOUNT
+    assert ns.Task(mount_seen, image=IMAGE)() == runner_module.MOUNT
 
 
 def test_in_a_pipeline_a_run_is_kept_under_pipeline_run_task(
@@ -624,17 +548,17 @@ def test_in_a_pipeline_a_run_is_kept_under_pipeline_run_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     task = ns.Task(double, image=IMAGE)
-    monkeypatch.delenv(task_module.FOLDER_ENV, raising=False)
+    monkeypatch.delenv(runner_module.FOLDER_ENV, raising=False)
     alone = task.submit(1)
     assert alone.output_uri == (
         f"s3://{BUCKET.name}/tasks/double/{STAMP}/files/"
     )
     run_folder = "flows/my-flow/20261125-my-run"
-    monkeypatch.setenv(task_module.FOLDER_ENV, run_folder)
+    monkeypatch.setenv(runner_module.FOLDER_ENV, run_folder)
     inside = task.submit(2)
     folder = f"{run_folder}/double-{STAMP}-2"
     assert inside.output_uri == f"s3://{BUCKET.name}/{folder}/files/"
-    assert inside.output_path == f"{task_module.MOUNT}/{folder}/files"
+    assert inside.output_path == f"{runner_module.MOUNT}/{folder}/files"
     assert inside.result() == 4
     assert backend.exists(BUCKET, f"{folder}/payload.json")
     assert backend.exists(BUCKET, f"{folder}/result.json")
@@ -643,12 +567,12 @@ def test_in_a_pipeline_a_run_is_kept_under_pipeline_run_task(
 def test_inside_a_job_the_bucket_is_read_as_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv(task_module.MOUNT_ENV, raising=False)
-    outside = task_module._backend(None)
-    assert type(outside) is task_module.SdkTaskBackend
-    monkeypatch.setenv(task_module.MOUNT_ENV, str(tmp_path))
-    inside = task_module._backend(None)
-    assert isinstance(inside, task_module.MountedTaskBackend)
+    monkeypatch.delenv(runner_module.MOUNT_ENV, raising=False)
+    outside = storage_module.backend(None)
+    assert type(outside) is storage_module.SdkTaskBackend
+    monkeypatch.setenv(runner_module.MOUNT_ENV, str(tmp_path))
+    inside = storage_module.backend(None)
+    assert isinstance(inside, storage_module.MountedTaskBackend)
     assert inside.get(BUCKET, "tasks/a/result.json") is None
     assert not inside.exists(BUCKET, "tasks/a/result.json")
     inside.put(BUCKET, "tasks/a/result.json", b"{}")
@@ -767,7 +691,7 @@ def test_a_dropped_run_never_starts(
 ) -> None:
     gate = task_module.TaskRun._waiting("gate")
     later = ns.Task(unwrap, image=IMAGE).submit(item=gate)
-    later._cancel()
+    later.cancel()
     with pytest.raises(ns.TaskFailed, match="dropped before it started"):
         later.result()
     gate._started(ns.Task(wrap, image=IMAGE).submit(5))
@@ -778,5 +702,5 @@ def test_a_dropped_run_never_starts(
 
 
 def test_the_bucket_is_named_after_the_project() -> None:
-    name = task_module.bucket_name("project-e00abc")
+    name = storage_module.bucket_name("project-e00abc")
     assert name == "generated-tasks-e00abc"

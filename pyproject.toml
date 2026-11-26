@@ -35,6 +35,10 @@ dependencies = [
     "rich>=13",
 ]
 
+[project.optional-dependencies]
+# Integrations, one extra each. The core does not need them.
+prefect = ["prefect>=3,<4"]
+
 [project.urls]
 Documentation = "https://mnrozhkov.github.io/nebius-serverless/"
 Repository = "https://github.com/mnrozhkov/nebius-serverless"

@@ -1,4 +1,4 @@
-"""ns.PrefectFlow: what it sends, task records, and the checksum."""
+"""The Prefect integration: PrefectFlow, Prefect tasks, artifacts."""
 
 # The fixtures of test_task are imported and then named as arguments.
 # ruff: noqa: F811
@@ -30,13 +30,21 @@ from test_task import (  # noqa: F401  (fixtures)
 )
 
 import nebius_serverless as ns
-from nebius_serverless import flow as flow_module
 from nebius_serverless import task as task_module
+from nebius_serverless import task_driver as driver_module
 from nebius_serverless.image import Image
+from nebius_serverless.integrations.prefect import FlowRun, PrefectFlow
+from nebius_serverless.integrations.prefect import (
+    artifacts as artifacts_module,
+)
+from nebius_serverless.integrations.prefect import flow as flow_module
+from nebius_serverless.integrations.prefect import login as login_module
+from nebius_serverless.integrations.prefect.adapter import prefect_task
+from nebius_serverless.task import task_from_record, task_record
 
 API = "https://prefect.test/api"
 # The real check. The credentials fixture replaces it on the module.
-CHECK_PREFECT = flow_module._check_prefect
+CHECK_PREFECT = login_module.check_server
 RATES = [0.1, 0.01]
 NAME = "experiment"
 
@@ -73,11 +81,11 @@ def credentials(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str]]:
         stored.append(dict(values))
         return f"mbsecver-e00test{len(stored)}"
 
-    monkeypatch.setattr(flow_module, "_store_credentials", store)
-    monkeypatch.setattr(flow_module, "_access_token", lambda profile: "tok")
-    monkeypatch.setattr(flow_module, "_prefect_login", lambda: "me:pw")
-    monkeypatch.setattr(flow_module, "_check_prefect", lambda url, login: None)
-    monkeypatch.setattr(flow_module, "_create_flow_run", lambda *args: None)
+    monkeypatch.setattr(driver_module, "store_credentials", store)
+    monkeypatch.setattr(driver_module, "access_token", lambda profile: "tok")
+    monkeypatch.setattr(login_module, "find_login", lambda: "me:pw")
+    monkeypatch.setattr(login_module, "check_server", lambda url, login: None)
+    monkeypatch.setattr(login_module, "create_flow_run", lambda *args: None)
     monkeypatch.setattr(
         Image,
         "_build",
@@ -95,52 +103,52 @@ def _payload(backend: FakeBackend, key: str) -> dict[str, object]:
 
 
 def test_it_finds_the_tasks_and_constants_a_function_uses() -> None:
-    flow = ns.PrefectFlow(pipeline, flow_name="Pipe Line", api_url=API)
-    assert sorted(flow._tasks) == ["double_task", "hello"]
-    assert flow._constants == {"NAME": NAME, "RATES": RATES}
+    flow = PrefectFlow(pipeline, flow_name="Pipe Line", api_url=API)
+    assert sorted(flow._driver.tasks) == ["double_task", "hello"]
+    assert flow._driver.constants == {"NAME": NAME, "RATES": RATES}
     assert flow.flow_name == "Pipe Line"
     assert flow.run_name == "Pipe Line"
     assert flow.name == "pipe-line"
-    named = ns.PrefectFlow(
+    named = PrefectFlow(
         pipeline, flow_name="pipeline", run_name="lr sweep", api_url=API
     )
     assert named.run_name == "lr sweep"
     assert str(inspect.signature(flow)) == "(epochs=5)"
     assert flow.__doc__ == "Run the tasks."
-    assert "def pipeline(epochs=5):" in flow._source
+    assert "def pipeline(epochs=5):" in flow._driver.source
 
 
 def test_other_names_from_the_file_are_refused() -> None:
     with pytest.raises(ns.ValidationError) as caught:
-        ns.PrefectFlow(uses_a_helper, flow_name="f", api_url=API)
+        PrefectFlow(uses_a_helper, flow_name="f", api_url=API)
     assert "double, helper, inspect" in str(caught.value)
     with pytest.raises(ns.ValidationError, match="must be a Python function"):
-        ns.PrefectFlow(len, flow_name="f", api_url=API)
+        PrefectFlow(len, flow_name="f", api_url=API)
 
 
 def test_it_needs_a_prefect_address(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PREFECT_API_URL", raising=False)
     with pytest.raises(ns.ValidationError, match="api_url"):
-        ns.PrefectFlow(pipeline, flow_name="f")
+        PrefectFlow(pipeline, flow_name="f")
     monkeypatch.setenv("PREFECT_API_URL", API)
-    assert ns.PrefectFlow(pipeline, flow_name="f").api_url == API
+    assert PrefectFlow(pipeline, flow_name="f").api_url == API
 
 
 def test_the_flow_name_is_required() -> None:
     with pytest.raises(TypeError, match="flow_name"):
-        ns.PrefectFlow(pipeline, api_url=API)  # type: ignore[call-arg]
+        PrefectFlow(pipeline, api_url=API)  # type: ignore[call-arg]
     with pytest.raises(ns.ValidationError, match="flow_name"):
-        ns.PrefectFlow(pipeline, flow_name=" ", api_url=API)
+        PrefectFlow(pipeline, flow_name=" ", api_url=API)
     with pytest.raises(ns.ValidationError, match="run_name"):
-        ns.PrefectFlow(pipeline, flow_name="f", run_name="", api_url=API)
+        PrefectFlow(pipeline, flow_name="f", run_name="", api_url=API)
 
 
 def test_the_image_has_a_default() -> None:
-    flow = ns.PrefectFlow(pipeline, flow_name="f", api_url=API)
-    assert flow.image is ns.PrefectFlow.default_image
+    flow = PrefectFlow(pipeline, flow_name="f", api_url=API)
+    assert flow.image is PrefectFlow.default_image
     assert flow.image.name == "prefect-flow"
     assert "prefect==" in flow_module.DOCKERFILE
-    custom = ns.PrefectFlow(pipeline, flow_name="f", api_url=API, image=IMAGE)
+    custom = PrefectFlow(pipeline, flow_name="f", api_url=API, image=IMAGE)
     assert custom.image == IMAGE
 
 
@@ -150,7 +158,7 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
     credentials: list[dict[str, str]],
 ) -> None:
     transport.run = False
-    flow = ns.PrefectFlow(
+    flow = PrefectFlow(
         pipeline,
         flow_name="My Flow",
         run_name="LR Sweep",
@@ -175,7 +183,7 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
         "parent_id": "project-1",
         "name": f"{STAMP}-lr-sweep",
     }
-    image = ns.PrefectFlow.default_image
+    image = PrefectFlow.default_image
     assert spec["image"] == f"cr.test/r/prefect-flow:{image.tag}"
     assert spec["timeout_seconds"] == 3 * 3600
     variables = {item["name"]: item for item in spec["environment_variables"]}
@@ -201,7 +209,7 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
     folder = f"flows/my-flow/{STAMP}-lr-sweep"
     key = f"{folder}/flow"
     assert variables["NS_TASK_FOLDER"]["value"] == folder
-    assert run.output_uri == f"s3://{BUCKET.name}/{key}/files/"
+    assert run.output_uri == f"s3://{BUCKET.name}/{folder}/"
     assert pointer["run"] == key
     raw = backend.get(BUCKET, f"{key}/payload.json")
     assert raw is not None
@@ -210,9 +218,11 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
     # The payload runs this package's flow function with the user's
     # function, its arguments, its constants and the task records.
     payload = _payload(backend, key)
-    assert payload["module"] == "nebius_serverless.flow"
-    assert payload["qualname"] == "_run_flow"
-    sent = payload["kwargs"]["flow"]  # type: ignore[index]
+    assert (
+        payload["module"] == "nebius_serverless.integrations.prefect.adapter"
+    )
+    assert payload["qualname"] == "run_in_job"
+    sent = payload["kwargs"]["program"]  # type: ignore[index]
     assert sent["title"] == "My Flow"
     assert sent["run_title"] == f"{STAMP}-LR Sweep"
     assert sent["function"] == "pipeline"
@@ -232,7 +242,7 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
     libs = backend.get(BUCKET, str(payload["libs"]))
     assert libs is not None
     names = tarfile.open(fileobj=io.BytesIO(libs)).getnames()
-    assert "nebius_serverless/flow.py" in names
+    assert "nebius_serverless/integrations/prefect/flow.py" in names
     assert "nebius_serverless/task.py" in names
     assert not any(name.endswith(".pyc") for name in names)
 
@@ -244,8 +254,8 @@ def test_a_server_without_a_login_gets_only_the_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     transport.run = False
-    monkeypatch.setattr(flow_module, "_prefect_login", lambda: None)
-    flow = ns.PrefectFlow(pipeline, flow_name="pipeline", api_url=API)
+    monkeypatch.setattr(login_module, "find_login", lambda: None)
+    flow = PrefectFlow(pipeline, flow_name="pipeline", api_url=API)
     flow.submit()
     assert credentials == [{"NEBIUS_IAM_TOKEN": "tok"}]
     # Without run_name, the run is named after the flow.
@@ -258,7 +268,7 @@ def test_bad_arguments_fail_before_anything_is_sent(
     transport: RunningTransport,
     credentials: list[dict[str, str]],
 ) -> None:
-    flow = ns.PrefectFlow(pipeline, flow_name="f", api_url=API)
+    flow = PrefectFlow(pipeline, flow_name="f", api_url=API)
     with pytest.raises(ns.ValidationError, match="unexpected keyword"):
         flow.submit(steps=1)
     with pytest.raises(ns.ValidationError, match="JSON"):
@@ -273,10 +283,10 @@ def test_a_task_from_its_record_runs_without_its_code(
     progress = task_module.Progress(quiet=True, logger_name="test")
     original = ns.Task(unpacks, image=IMAGE, include_libs=["demo_pkg"])
     record = json.loads(
-        json.dumps(original._record(progress, backend, BUCKET))
+        json.dumps(task_record(original, progress, backend, BUCKET))
     )
     assert record["libs"].startswith("libs/")
-    copy = ns.Task._from_record(record)
+    copy = task_from_record(record)
     assert copy.name == "unpacks"
     assert str(inspect.signature(copy)) == "(x)"
     assert copy(1) == original(1) == 2
@@ -285,15 +295,15 @@ def test_a_task_from_its_record_runs_without_its_code(
 
     triple = importlib.import_module("demo_pkg.mathx").triple
     by_name = ns.Task(triple, image=IMAGE, include_libs=["demo_pkg"])
-    again = ns.Task._from_record(by_name._record(progress, backend, BUCKET))
+    again = task_from_record(task_record(by_name, progress, backend, BUCKET))
     assert again(4) == 12
 
 
 def test_a_record_keeps_which_arguments_are_needed() -> None:
     progress = task_module.Progress(quiet=True, logger_name="test")
     fake = FakeBackend(Path("."))
-    record = double_task._record(progress, fake, BUCKET)
-    copy = ns.Task._from_record(record)
+    record = task_record(double_task, progress, fake, BUCKET)
+    copy = task_from_record(record)
     assert str(inspect.signature(copy)) == "(x, times=Ellipsis)"
     with pytest.raises(ns.ValidationError, match="missing"):
         copy._bind((), {})
@@ -321,12 +331,12 @@ def test_the_login_is_found_in_the_environment_or_the_file(
 ) -> None:
     monkeypatch.setitem(sys.modules, "prefect.settings", None)
     monkeypatch.delenv("PREFECT_API_AUTH_STRING", raising=False)
-    monkeypatch.setattr(flow_module, "PREFECT_AUTH_FILE", tmp_path / "auth")
-    assert flow_module._prefect_login() is None
+    monkeypatch.setattr(login_module, "PREFECT_AUTH_FILE", tmp_path / "auth")
+    assert login_module.find_login() is None
     (tmp_path / "auth").write_text("file-user:file-pw\n")
-    assert flow_module._prefect_login() == "file-user:file-pw"
+    assert login_module.find_login() == "file-user:file-pw"
     monkeypatch.setenv("PREFECT_API_AUTH_STRING", "env-user:env-pw")
-    assert flow_module._prefect_login() == "env-user:env-pw"
+    assert login_module.find_login() == "env-user:env-pw"
 
 
 class _Reply:
@@ -365,9 +375,9 @@ def test_a_refused_login_fails_before_anything_is_started(
     assert seen == [None, "Basic bWU6d3Jvbmc="]
 
     # submit makes the check first: nothing is written or started.
-    monkeypatch.setattr(flow_module, "_check_prefect", check)
+    monkeypatch.setattr(login_module, "check_server", check)
     with pytest.raises(ns.AccessError, match="refused the login"):
-        ns.PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
+        PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
     assert credentials == []
     assert transport.bodies == []
 
@@ -400,18 +410,18 @@ def test_a_function_with_the_flow_decorator_is_accepted() -> None:
     def decorated(epochs=1):
         return double_task(epochs)
 
-    flow = ns.PrefectFlow(decorated, flow_name="Other Name", api_url=API)
+    flow = PrefectFlow(decorated, flow_name="Other Name", api_url=API)
     assert flow.flow_name == "Other Name"
-    assert flow._source.startswith("def decorated(epochs=1):")
+    assert flow._driver.source.startswith("def decorated(epochs=1):")
 
 
 def test_the_default_image_pins_the_prefect_it_checks() -> None:
-    assert flow_module._pinned_prefect() == "3.9.5"
+    assert flow_module._pinned_version() == "3.9.5"
     assert "prefect==3.9.5" in flow_module.DOCKERFILE
 
 
 def test_an_older_prefect_server_is_refused() -> None:
-    check = flow_module._check_versions
+    check = login_module.check_versions
     check(API, "3.9.5", "3.9.5", "here")
     check(API, "3.10.0", "3.9.5", "here")
     # Unknown versions are not checked.
@@ -433,13 +443,13 @@ def test_submit_stops_when_the_server_is_older_than_the_image(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     transport.run = False
-    monkeypatch.setattr(flow_module, "_check_prefect", lambda *args: "3.8.8")
+    monkeypatch.setattr(login_module, "check_server", lambda *args: "3.8.8")
     with pytest.raises(ns.ValidationError, match="older than"):
-        ns.PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
+        PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
     assert credentials == []
     assert transport.bodies == []
     # Another image's Prefect is not known, so it is not checked.
-    ns.PrefectFlow(pipeline, flow_name="f", api_url=API, image=IMAGE).submit()
+    PrefectFlow(pipeline, flow_name="f", api_url=API, image=IMAGE).submit()
     assert len(transport.bodies) == 1
 
 
@@ -447,7 +457,7 @@ def test_the_link_goes_to_the_prefect_ui(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("PREFECT_UI_URL", raising=False)
-    link = flow_module._ui_url
+    link = login_module.ui_url
     assert (
         link("https://prefect.test/api", "r-1")
         == "https://prefect.test/runs/flow-run/r-1"
@@ -475,7 +485,7 @@ def test_the_flow_run_is_created_pending(
         return _Reply({"id": "run-1"})
 
     monkeypatch.setattr(urllib.request, "urlopen", answer)
-    run_id = flow_module._create_flow_run(
+    run_id = login_module.create_flow_run(
         API, "me:pw", "My Flow", "20261126-x-sweep", {"epochs": 3}
     )
     assert run_id == "run-1"
@@ -498,7 +508,7 @@ def test_the_flow_run_is_created_pending(
         raise urllib.error.URLError("no route")
 
     monkeypatch.setattr(urllib.request, "urlopen", unreachable)
-    assert flow_module._create_flow_run(API, None, "f", "r", {}) is None
+    assert login_module.create_flow_run(API, None, "f", "r", {}) is None
 
 
 def test_submit_sends_the_flow_run_and_returns_its_link(
@@ -515,8 +525,8 @@ def test_submit_sends_the_flow_run_and_returns_its_link(
         created.append(args)
         return "run-1"
 
-    monkeypatch.setattr(flow_module, "_create_flow_run", create)
-    flow = ns.PrefectFlow(pipeline, flow_name="My Flow", api_url=API)
+    monkeypatch.setattr(login_module, "create_flow_run", create)
+    flow = PrefectFlow(pipeline, flow_name="My Flow", api_url=API)
     run = flow.submit(3)
     assert created == [
         (API, "me:pw", "My Flow", f"{STAMP}-My Flow", {"epochs": 3})
@@ -524,7 +534,7 @@ def test_submit_sends_the_flow_run_and_returns_its_link(
     assert run.flow_run_id == "run-1"
     assert run.flow_run_url == "https://prefect.test/runs/flow-run/run-1"
     folder = f"flows/my-flow/{STAMP}-my-flow"
-    sent = _payload(backend, f"{folder}/flow")["kwargs"]["flow"]  # type: ignore[index]
+    sent = _payload(backend, f"{folder}/flow")["kwargs"]["program"]  # type: ignore[index]
     assert sent["flow_run_id"] == "run-1"
     assert sent["parameters"] == {"epochs": 3}
     assert sent["args"] == [3]
@@ -537,10 +547,10 @@ def test_a_flow_job_that_does_not_start_crashes_its_flow_run(
     credentials: list[dict[str, str]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(flow_module, "_create_flow_run", lambda *a: "run-1")
+    monkeypatch.setattr(login_module, "create_flow_run", lambda *a: "run-1")
     crashed: list[tuple[object, ...]] = []
     monkeypatch.setattr(
-        flow_module, "_mark_crashed", lambda *args: crashed.append(args)
+        login_module, "mark_crashed", lambda *args: crashed.append(args)
     )
 
     def refuse(*args: object, **kwargs: object) -> object:
@@ -548,7 +558,7 @@ def test_a_flow_job_that_does_not_start_crashes_its_flow_run(
 
     monkeypatch.setattr(transport, "create", refuse)
     with pytest.raises(ns.CapacityError):
-        ns.PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
+        PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
     assert len(crashed) == 1
     assert crashed[0][:3] == (API, "me:pw", "run-1")
     assert "did not start" in str(crashed[0][3])
@@ -561,14 +571,15 @@ def test_a_flow_here_needs_prefect_here(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "prefect", None)
-    flow = ns.PrefectFlow(
-        pipeline, flow_name="f", api_url=API, remote_job=False
-    )
+    flow = PrefectFlow(pipeline, flow_name="f", api_url=API, remote_job=False)
     assert flow.remote_job is False
     for start in (flow.submit, flow):
         with pytest.raises(ns.ValidationError, match="needs the prefect") as e:
             start()
-        assert e.value.recovery == "Install it: pip install prefect"
+        assert (
+            e.value.recovery
+            == 'Install it: pip install "nebius-serverless[prefect]"'
+        )
     assert transport.bodies == []
 
 
@@ -588,15 +599,15 @@ def test_a_flow_runs_here_as_the_flow_run_made_at_submit(
     from prefect.settings import PREFECT_API_URL
     from prefect.testing.utilities import prefect_test_harness
 
-    monkeypatch.setattr(flow_module, "_prefect_login", lambda: None)
+    monkeypatch.setattr(login_module, "find_login", lambda: None)
     monkeypatch.delenv("PREFECT_UI_URL", raising=False)
     with prefect_test_harness():
         api = PREFECT_API_URL.value()
-        flow = ns.PrefectFlow(
+        flow = PrefectFlow(
             doubled, flow_name="Here", api_url=api, remote_job=False
         )
         run = flow.submit(epochs=3)
-        assert isinstance(run, flow_module.FlowRun)
+        assert isinstance(run, FlowRun)
         assert run.job is None
         assert run.name == STAMP
         assert run.title == f"{STAMP}-Here"
@@ -608,7 +619,7 @@ def test_a_flow_runs_here_as_the_flow_run_made_at_submit(
         # Called, it runs in this thread. Without a server to create the
         # run at submit, Prefect creates it when the flow starts.
         monkeypatch.setattr(
-            flow_module, "_create_flow_run", lambda *args: None
+            login_module, "create_flow_run", lambda *args: None
         )
         assert flow(epochs=1) == {"first": 2, "second": 4}
 
@@ -631,3 +642,83 @@ def test_a_flow_runs_here_as_the_flow_run_made_at_submit(
     for name in (f"{STAMP}-here", f"{STAMP}-2-here"):
         prefix = f"flows/here/{name}/double-"
         assert sum(key.startswith(prefix) for key in payloads) == 2
+
+
+def test_a_prefect_task_keeps_the_name_signature_and_result(
+    backend: FakeBackend, transport: RunningTransport
+) -> None:
+    pytest.importorskip("prefect")
+    wrapped = prefect_task(
+        ns.Task(double, name="Double It", image=IMAGE), retries=2
+    )
+    assert wrapped.name == "double-it"
+    assert wrapped.retries == 2
+    assert str(inspect.signature(wrapped.fn)) == "(x, times=2)"
+    assert wrapped.fn(21) == 42
+    assert transport.bodies[0]["metadata"] == {
+        "parent_id": "project-1",
+        "name": f"double-it-{STAMP}",
+    }
+
+
+def test_a_prefect_task_run_shows_its_job_and_inputs(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = ns.Task(double, image=IMAGE).submit(4, times=5)
+    monkeypatch.delenv(task_module.CONSOLE_ENV, raising=False)
+    shown = artifacts_module.job_markdown(run)
+    assert "- Job: `job-1`\n" in shown
+    assert f"- Name: `double-{STAMP}`" in shown
+    assert "- Logs: `nebius ai job logs job-1`" in shown
+    assert f"- Files: `{run.output_uri}`" in shown
+    inputs = artifacts_module.values_markdown("Inputs of `double`", run.inputs)
+    assert inputs == "### Inputs of `double`\n\n- x: `4`\n- times: `5`"
+    assert task_module.console_url("project-1", "job-1") is None
+
+    monkeypatch.setenv(
+        task_module.CONSOLE_ENV, "https://console.test/{project}/jobs/{job}"
+    )
+    link = "https://console.test/project-1/jobs/job-1"
+    assert task_module.console_url("project-1", "job-1") == link
+    assert f"([open in the console]({link}))" in artifacts_module.job_markdown(
+        run
+    )
+
+    assert artifacts_module.JOB_ARTIFACT == "nebius-job"
+    assert artifacts_module.INPUTS_ARTIFACT == "inputs"
+    assert artifacts_module.OUTPUTS_ARTIFACT == "outputs"
+
+    shown = artifacts_module.values_markdown
+    outputs = shown(
+        "Outputs",
+        {
+            "path": "/ns/tasks/a/files/model.pt",
+            "loss": 0.25,
+            "ok": True,
+            "tags": ["a", "b"],
+            "note": "",
+            "code": "a `b` c",
+        },
+    )
+    assert outputs.splitlines()[2:] == [
+        "- path: `/ns/tasks/a/files/model.pt`",
+        "- loss: `0.25`",
+        "- ok: `true`",
+        '- tags: `["a", "b"]`',
+        "- note: (empty)",
+        "- code: `` a `b` c ``",
+    ]
+    assert shown("Outputs", 9).endswith("- Value: `9`")
+    assert shown("Inputs", {}).endswith("- (none)")
+    assert shown("Outputs", list(range(2000))).endswith("... (cut)`")
+    # Outside a Prefect run these do nothing and do not fail.
+    artifacts_module.show_started(run)
+    artifacts_module.show_finished(run, {"a": 1})
+
+
+def test_prefect_tasks_need_prefect(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "prefect", None)
+    with pytest.raises(ns.ValidationError, match="needs the prefect"):
+        prefect_task(ns.Task(double, image=IMAGE))

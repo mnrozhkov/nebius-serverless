@@ -1,7 +1,7 @@
 """Measure a trained model on the test images."""
 
-from src.data.mnist import load_split
-from src.models.small_cnn import build_model
+from lib.data.mnist import load_split
+from lib.models.small_cnn import build_model
 
 
 def evaluate(

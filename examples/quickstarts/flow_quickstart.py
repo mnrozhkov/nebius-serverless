@@ -14,6 +14,7 @@ credentials as the task quickstart. Uses the active Nebius profile.
 import os
 
 import nebius_serverless as ns
+from nebius_serverless.integrations.prefect import PrefectFlow
 
 IMAGE = "python:3.12-slim-bookworm"
 
@@ -40,7 +41,7 @@ def pipeline(n: int = 3) -> int:
 
 def main() -> None:
     """Start the flow on a Nebius job and wait for its result."""
-    flow = ns.PrefectFlow(
+    flow = PrefectFlow(
         pipeline,
         flow_name="sum-of-squares",
         api_url=os.environ.get("PREFECT_API_URL"),
