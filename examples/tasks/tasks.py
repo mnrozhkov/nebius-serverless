@@ -1,28 +1,20 @@
-"""The tasks and constants of the baseline experiment.
+"""The tasks and constants of the MNIST baseline experiment.
 
-``train.py`` imports them from here. Import
-this module from this folder, so that ``ns.Image`` finds the
-Dockerfile. ``include_libs`` takes import names, so ``src`` is
+``train.py`` imports them from here. Run it from this folder: the tasks
+send the local package ``src`` with ``include_libs=["src"]``, which is
 found the same way ``import src`` finds it.
 
-The training tasks share one image, ``images/baseline/Dockerfile``.
-``aggregate`` needs only Python and uses a public image.
+The training tasks share one image, built from ``DOCKERFILE`` on the
+first run and reused after that. ``aggregate`` needs only Python and
+uses a public image.
 
-- ``gpu_check``: a shell command. Inputs arrive in the bash array
-  ``inputs``; what it sets in ``outputs`` comes back as a dict.
+- ``gpu_check``: a bash script, on a GPU job.
 - ``prepare``: downloads the dataset, on a CPU job.
 - ``train``: trains with one learning rate, on a spot GPU job.
 - ``evaluate``: measures one checkpoint, on a GPU job.
 - ``aggregate``: puts the runs together and picks the best one, on a
-  CPU job. Its outputs are the experiment's result.
-
-
-dont consider this:
-# The step functions are defined here and import from ``src`` inside
-# their bodies. This script never imports ``src`` itself, so each
-# import succeeds only if ``include_libs`` sent the package to the job.
+  CPU job. Its result is the experiment's result.
 """
-
 
 import os
 
@@ -38,7 +30,6 @@ LEARNING_RATES = [0.3, 0.1, 0.03, 0.01]
 # that no server address is kept in this file.
 PREFECT_API_URL = os.environ.get("PREFECT_API_URL")
 
-
 DOCKERFILE = """
 FROM python:3.12-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -47,7 +38,8 @@ RUN uv pip install --system --compile-bytecode torch==2.8.0 torchvision==0.23.0
 
 image_torch = ns.Image(dockerfile_string=DOCKERFILE)
 
-# sh task
+# A bash script. Its inputs arrive in the bash array ``inputs``; what it
+# sets in ``outputs`` comes back as a dict of strings.
 gpu_check = ns.Task(
     name="gpu-check",
     image=image_torch,
@@ -67,7 +59,7 @@ gpu_check = ns.Task(
     """,
 )
 
-# imported function task
+# A function from the package ``src``: the job imports it by name.
 prepare = ns.Task(
     prepare_data,
     name="prepare-data",
@@ -88,7 +80,8 @@ def train_step(
     )
 
 
-# function import inside task
+# A function defined here: its source is sent, so it imports from ``src``
+# inside its body.
 train = ns.Task(
     train_step,
     name="train-baseline",
@@ -138,7 +131,7 @@ def aggregate_results(
     }
 
 
-# plain function task, on a small CPU job
+# A self-contained function on a public image and the smallest CPU machine.
 aggregate = ns.Task(
     aggregate_results,
     name="aggregate-results",

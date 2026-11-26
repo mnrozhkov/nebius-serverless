@@ -1,8 +1,8 @@
 """A baseline experiment as a pipeline of tasks.
 
-Runs on the ``ns.Task`` and ``ns.PrefectFlow`` prototypes. See
-``task_proposal.md`` and ``flow_job_proposal.md`` in this folder. The
-tasks and constants are in ``tasks.py``.
+Uses ``ns.Task`` and ``ns.PrefectFlow``. The tasks and constants are in
+``tasks.py``. The walkthrough is the "Pipeline of tasks" page of the
+documentation, ``docs/training/task-pipeline.md``.
 
 The pipeline trains a small image classifier on MNIST with several
 learning rates, evaluates each result, and returns the best one:
@@ -102,16 +102,6 @@ def pipeline(epochs: int = 5) -> dict[str, object]:
     return best.result()
 
 
-def show(best: dict[str, object]) -> None:
-    """Print the accuracy of each learning rate and the best run."""
-    accuracy = best["accuracy_by_lr"]
-    assert isinstance(accuracy, dict)
-    print("lr\taccuracy")
-    for lr, value in accuracy.items():
-        print(f"{lr}\t{value:.3f}")
-    print(f"best lr: {best['lr']}, checkpoint: {best['checkpoint']}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run the MNIST baseline pipeline."
@@ -129,24 +119,18 @@ def main() -> None:
     mode = parser.parse_args().mode
 
     if mode == "local":
-        show(pipeline())
+        result = pipeline()
+        print(result)
         return
 
     flow = ns.PrefectFlow(
         pipeline,
         flow_name=EXPERIMENT,
         api_url=PREFECT_API_URL,
-        remote_job=mode == "prefect-remote",
-        # The flow job's limit. Not used by prefect-local.
-        timeout="3h",
+        remote_job=(mode == "prefect-remote"),
+        timeout="3h",  # The flow job's limit. Not used by prefect-local.
     )
     run = flow.submit()
-    if mode == "prefect-local":
-        print(f"flow run {run.name}: {run.flow_run_url or 'no link'}")
-        show(run.result())
-        return
-
-    print(f"started flow job {run.job.id}, run {run.name}")
     if run.flow_run_url:
         print(f"Prefect: {run.flow_run_url}")
 

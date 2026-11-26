@@ -164,3 +164,72 @@ def test_image_quickstart_builds_reuses_and_runs(
     assert len(created) == 1
     assert created[0].image == ref
     assert created[0].gpu is None
+
+
+class _FakeTaskRun:
+    """A task run that computes its result here, with runs resolved."""
+
+    def __init__(self, task: ns.Task, kwargs: dict[str, object]) -> None:
+        self.task = task
+        self.kwargs = kwargs
+
+    def result(self) -> object:
+        kwargs = {key: _resolved(value) for key, value in self.kwargs.items()}
+        if self.task.function is None:
+            return {"greeting": f"hello {kwargs['who']}"}
+        return self.task.function(**kwargs)
+
+
+def _resolved(value: object) -> object:
+    if isinstance(value, _FakeTaskRun):
+        return value.result()
+    if isinstance(value, list):
+        return [_resolved(item) for item in value]
+    return value
+
+
+def _fake_submit(self: ns.Task, **kwargs: object) -> _FakeTaskRun:
+    return _FakeTaskRun(self, kwargs)
+
+
+def test_task_quickstart_calls_and_chains_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_module(EXAMPLES / "quickstarts" / "task_quickstart.py")
+    monkeypatch.setattr(module.ns.Task, "submit", _fake_submit)
+    module.main()
+    out = capsys.readouterr().out
+    assert "'to': 2" in out
+    assert "hello world" in out
+    assert "most common: to" in out
+    assert module.hello.inputs == ("who",)
+    assert module.count.name == "count-words"
+
+
+def test_flow_quickstart_submits_the_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_module(EXAMPLES / "quickstarts" / "flow_quickstart.py")
+    monkeypatch.setenv("PREFECT_API_URL", "https://prefect.example.com/api")
+    submitted: list[ns.PrefectFlow] = []
+
+    class _FakeFlowRun:
+        def __init__(self, value: object) -> None:
+            self.value = value
+
+        def result(self) -> object:
+            return self.value
+
+    def fake_flow_submit(self: ns.PrefectFlow, **kwargs: object) -> object:
+        submitted.append(self)
+        return _FakeFlowRun(self.function(**kwargs))
+
+    monkeypatch.setattr(module.ns.Task, "submit", _fake_submit)
+    monkeypatch.setattr(module.ns.PrefectFlow, "submit", fake_flow_submit)
+    module.main()
+    assert len(submitted) == 1
+    assert submitted[0].flow_name == "sum-of-squares"
+    assert submitted[0].remote_job is True
+    assert "sum of squares: 5" in capsys.readouterr().out

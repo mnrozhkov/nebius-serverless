@@ -31,4 +31,4 @@ The push uses your own credentials, the same ones that create jobs. Each build s
 
 ## Next
 
-Use the image in a [training](../training/index.md) job, or step through a GPU build in the [image notebook](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/images/image.ipynb).
+Use the image for a [task](first-task.md), see every option in the [Images reference](../reference/images.md), or step through a GPU build in the [image notebook](https://github.com/mnrozhkov/nebius-serverless/blob/main/examples/images/image.ipynb).

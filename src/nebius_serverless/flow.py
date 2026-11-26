@@ -1,11 +1,11 @@
 """``ns.PrefectFlow``: run a pipeline of tasks as a Prefect flow on a job.
 
-Prototype. A ``PrefectFlow`` wraps a function that calls ``ns.Task``
-objects. ``submit`` starts one Nebius job that runs the function as a
-Prefect flow, and that job starts the tasks' jobs. With
-``remote_job=False`` the flow runs in this process instead. Either way
-the flow run is created in Prefect at submit, so its link is known at
-once. Constructing a ``PrefectFlow`` does not contact Nebius.
+A ``PrefectFlow`` wraps a function that calls ``ns.Task`` objects.
+``submit`` starts one Nebius job that runs the function as a Prefect
+flow, and that job starts the tasks' jobs. With ``remote_job=False``
+the flow runs in this process instead. Either way the flow run is
+created in Prefect at submit, so its link is known at once.
+Constructing a ``PrefectFlow`` does not contact Nebius.
 """
 
 import base64

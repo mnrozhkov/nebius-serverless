@@ -20,6 +20,24 @@ import nebius_serverless as ns
 
     `EndpointSpec`, `Endpoint`, and `ns.endpoints`: long-running containers on a managed URL.
 
+-   :material-docker: **[Images](images.md)**
+
+    ---
+
+    `Image`: build a Dockerfile on Nebius and push it to the project's registry.
+
+-   :material-function-variant: **[Tasks](tasks.md)**
+
+    ---
+
+    `Task` and `TaskRun`: a Python function or a bash script as a job.
+
+-   :material-sitemap-outline: **[Prefect flows](flows.md)**
+
+    ---
+
+    `PrefectFlow` and `FlowRun`: a pipeline of tasks as a Prefect flow.
+
 -   :material-account-key-outline: **[Session and auth](session.md)**
 
     ---
@@ -42,7 +60,7 @@ import nebius_serverless as ns
 
 ## Everywhere
 
-Constructing a `JobSpec`, loading YAML, or importing the package does not authenticate, upload, or create. The Nebius SDK is imported on the call that resolves a profile or contacts Nebius.
+Constructing a `JobSpec`, `EndpointSpec`, `Image`, `Task`, or `PrefectFlow`, loading YAML, or importing the package does not authenticate, upload, or create. The Nebius SDK is imported on the call that resolves a profile or contacts Nebius.
 
 Logs stay on the CLI: `nebius ai job logs <id>`. This package does not stream them.
 

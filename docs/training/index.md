@@ -16,4 +16,10 @@ Model training and fine-tuning workloads.
 
     Two models trained at the same time, one job each, results in separate folders.
 
+-   :material-sitemap-outline: **[Pipeline of tasks](task-pipeline.md)**
+
+    ---
+
+    Prepare, train, evaluate, and pick the best run as `ns.Task` steps, in plain Python or as a Prefect flow.
+
 </div>

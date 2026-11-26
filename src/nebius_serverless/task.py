@@ -1,8 +1,8 @@
 """``ns.Task``: run a Python function or a bash script as a Nebius job.
 
-Prototype. A ``Task`` wraps a function or a script. Calling it starts a
-job, waits for it, and returns the result. Constructing a ``Task`` does
-not contact Nebius.
+A ``Task`` wraps a function or a script. Calling it starts a job,
+waits for it, and returns the result. Constructing a ``Task`` does not
+contact Nebius.
 
 Code and results travel through a bucket in the project,
 ``generated-tasks-<project id>``, which the first run creates. Jobs

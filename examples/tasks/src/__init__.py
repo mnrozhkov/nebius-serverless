@@ -1,1 +1,1 @@
-"""Prototype of a local library whose functions run as ``ns.Task`` jobs."""
+"""A local library whose functions run as ``ns.Task`` jobs."""
