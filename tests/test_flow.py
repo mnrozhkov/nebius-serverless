@@ -77,6 +77,7 @@ def credentials(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str]]:
     monkeypatch.setattr(flow_module, "_access_token", lambda profile: "tok")
     monkeypatch.setattr(flow_module, "_prefect_login", lambda: "me:pw")
     monkeypatch.setattr(flow_module, "_check_prefect", lambda url, login: None)
+    monkeypatch.setattr(flow_module, "_create_flow_run", lambda *args: None)
     monkeypatch.setattr(
         Image,
         "_build",
@@ -329,11 +330,17 @@ def test_the_login_is_found_in_the_environment_or_the_file(
 
 
 class _Reply:
+    def __init__(self, body: object = "3.9.5") -> None:
+        self.body = json.dumps(body).encode()
+
     def __enter__(self) -> "_Reply":
         return self
 
     def __exit__(self, *args: object) -> None:
         return None
+
+    def read(self) -> bytes:
+        return self.body
 
 
 def test_a_refused_login_fails_before_anything_is_started(
@@ -371,13 +378,13 @@ def test_an_accepted_login_or_an_unreachable_server_is_not_an_error(
     monkeypatch.setattr(
         urllib.request, "urlopen", lambda request, timeout: _Reply()
     )
-    CHECK_PREFECT(API, "me:pw")
+    assert CHECK_PREFECT(API, "me:pw") == "3.9.5"
 
     def unreachable(request: object, timeout: float) -> _Reply:
         raise urllib.error.URLError("no route")
 
     monkeypatch.setattr(urllib.request, "urlopen", unreachable)
-    CHECK_PREFECT(API, None)
+    assert CHECK_PREFECT(API, None) is None
 
     def missing(request: object, timeout: float) -> _Reply:
         raise urllib.error.HTTPError(API, 404, "Not Found", {}, None)  # type: ignore[arg-type]
@@ -396,3 +403,231 @@ def test_a_function_with_the_flow_decorator_is_accepted() -> None:
     flow = ns.PrefectFlow(decorated, flow_name="Other Name", api_url=API)
     assert flow.flow_name == "Other Name"
     assert flow._source.startswith("def decorated(epochs=1):")
+
+
+def test_the_default_image_pins_the_prefect_it_checks() -> None:
+    assert flow_module._pinned_prefect() == "3.9.5"
+    assert "prefect==3.9.5" in flow_module.DOCKERFILE
+
+
+def test_an_older_prefect_server_is_refused() -> None:
+    check = flow_module._check_versions
+    check(API, "3.9.5", "3.9.5", "here")
+    check(API, "3.10.0", "3.9.5", "here")
+    # Unknown versions are not checked.
+    check(API, None, "3.9.5", "here")
+    check(API, "3.8.8", None, "here")
+    check(API, "dev", "3.9.5", "here")
+    with pytest.raises(ns.ValidationError) as caught:
+        check(API, "3.8.8", "3.9.5", "in the flow job's image")
+    assert "runs Prefect 3.8.8, older than the Prefect 3.9.5" in str(
+        caught.value
+    )
+    assert "Upgrade the Prefect server to 3.9.5" in str(caught.value.recovery)
+
+
+def test_submit_stops_when_the_server_is_older_than_the_image(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    credentials: list[dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport.run = False
+    monkeypatch.setattr(flow_module, "_check_prefect", lambda *args: "3.8.8")
+    with pytest.raises(ns.ValidationError, match="older than"):
+        ns.PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
+    assert credentials == []
+    assert transport.bodies == []
+    # Another image's Prefect is not known, so it is not checked.
+    ns.PrefectFlow(pipeline, flow_name="f", api_url=API, image=IMAGE).submit()
+    assert len(transport.bodies) == 1
+
+
+def test_the_link_goes_to_the_prefect_ui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PREFECT_UI_URL", raising=False)
+    link = flow_module._ui_url
+    assert (
+        link("https://prefect.test/api", "r-1")
+        == "https://prefect.test/runs/flow-run/r-1"
+    )
+    assert (
+        link("https://prefect.test/api/", "r-1")
+        == "https://prefect.test/runs/flow-run/r-1"
+    )
+    monkeypatch.setenv("PREFECT_UI_URL", "https://ui.test/")
+    assert link(API, "r-1") == "https://ui.test/runs/flow-run/r-1"
+
+
+def test_the_flow_run_is_created_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[tuple[str, object, str | None]] = []
+
+    def answer(request: urllib.request.Request, timeout: float) -> _Reply:
+        body = json.loads(request.data)  # type: ignore[arg-type]
+        sent.append(
+            (request.full_url, body, request.get_header("Authorization"))
+        )
+        if request.full_url.endswith("/flows/"):
+            return _Reply({"id": "flow-1"})
+        return _Reply({"id": "run-1"})
+
+    monkeypatch.setattr(urllib.request, "urlopen", answer)
+    run_id = flow_module._create_flow_run(
+        API, "me:pw", "My Flow", "20261126-x-sweep", {"epochs": 3}
+    )
+    assert run_id == "run-1"
+    auth = "Basic bWU6cHc="
+    assert sent == [
+        (f"{API}/flows/", {"name": "My Flow"}, auth),
+        (
+            f"{API}/flow_runs/",
+            {
+                "flow_id": "flow-1",
+                "name": "20261126-x-sweep",
+                "parameters": {"epochs": 3},
+                "state": {"type": "PENDING", "name": "Pending"},
+            },
+            auth,
+        ),
+    ]
+
+    def unreachable(request: object, timeout: float) -> _Reply:
+        raise urllib.error.URLError("no route")
+
+    monkeypatch.setattr(urllib.request, "urlopen", unreachable)
+    assert flow_module._create_flow_run(API, None, "f", "r", {}) is None
+
+
+def test_submit_sends_the_flow_run_and_returns_its_link(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    credentials: list[dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    transport.run = False
+    monkeypatch.delenv("PREFECT_UI_URL", raising=False)
+    created: list[tuple[object, ...]] = []
+
+    def create(*args: object) -> str:
+        created.append(args)
+        return "run-1"
+
+    monkeypatch.setattr(flow_module, "_create_flow_run", create)
+    flow = ns.PrefectFlow(pipeline, flow_name="My Flow", api_url=API)
+    run = flow.submit(3)
+    assert created == [
+        (API, "me:pw", "My Flow", f"{STAMP}-My Flow", {"epochs": 3})
+    ]
+    assert run.flow_run_id == "run-1"
+    assert run.flow_run_url == "https://prefect.test/runs/flow-run/run-1"
+    folder = f"flows/my-flow/{STAMP}-my-flow"
+    sent = _payload(backend, f"{folder}/flow")["kwargs"]["flow"]  # type: ignore[index]
+    assert sent["flow_run_id"] == "run-1"
+    assert sent["parameters"] == {"epochs": 3}
+    assert sent["args"] == [3]
+    assert sent["folder"] == folder
+
+
+def test_a_flow_job_that_does_not_start_crashes_its_flow_run(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    credentials: list[dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(flow_module, "_create_flow_run", lambda *a: "run-1")
+    crashed: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        flow_module, "_mark_crashed", lambda *args: crashed.append(args)
+    )
+
+    def refuse(*args: object, **kwargs: object) -> object:
+        raise ns.CapacityError("no room")
+
+    monkeypatch.setattr(transport, "create", refuse)
+    with pytest.raises(ns.CapacityError):
+        ns.PrefectFlow(pipeline, flow_name="f", api_url=API).submit()
+    assert len(crashed) == 1
+    assert crashed[0][:3] == (API, "me:pw", "run-1")
+    assert "did not start" in str(crashed[0][3])
+
+
+def test_a_flow_here_needs_prefect_here(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    credentials: list[dict[str, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "prefect", None)
+    flow = ns.PrefectFlow(
+        pipeline, flow_name="f", api_url=API, remote_job=False
+    )
+    assert flow.remote_job is False
+    for start in (flow.submit, flow):
+        with pytest.raises(ns.ValidationError, match="needs the prefect") as e:
+            start()
+        assert e.value.recovery == "Install it: pip install prefect"
+    assert transport.bodies == []
+
+
+def doubled(epochs=2):
+    """Double two numbers, one of them after the other."""
+    first = double_task.submit(epochs)
+    return {"first": first.result(), "second": double_task(epochs + 1)}
+
+
+def test_a_flow_runs_here_as_the_flow_run_made_at_submit(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("prefect")
+    from prefect.client.orchestration import get_client
+    from prefect.settings import PREFECT_API_URL
+    from prefect.testing.utilities import prefect_test_harness
+
+    monkeypatch.setattr(flow_module, "_prefect_login", lambda: None)
+    monkeypatch.delenv("PREFECT_UI_URL", raising=False)
+    with prefect_test_harness():
+        api = PREFECT_API_URL.value()
+        flow = ns.PrefectFlow(
+            doubled, flow_name="Here", api_url=api, remote_job=False
+        )
+        run = flow.submit(epochs=3)
+        assert isinstance(run, flow_module.FlowRun)
+        assert run.job is None
+        assert run.name == STAMP
+        assert run.title == f"{STAMP}-Here"
+        assert run.flow_run_id is not None
+        assert run.flow_run_url == (
+            api[: -len("/api")] + f"/runs/flow-run/{run.flow_run_id}"
+        )
+        assert run.result() == {"first": 6, "second": 8}
+        # Called, it runs in this thread. Without a server to create the
+        # run at submit, Prefect creates it when the flow starts.
+        monkeypatch.setattr(
+            flow_module, "_create_flow_run", lambda *args: None
+        )
+        assert flow(epochs=1) == {"first": 2, "second": 4}
+
+        with get_client(sync_client=True) as client:
+            runs = {str(item.id): item for item in client.read_flow_runs()}
+        # One flow run each: the one made at submit was used, not a new
+        # one.
+        assert len(runs) == 2
+        made = runs[run.flow_run_id]
+        assert made.name == f"{STAMP}-Here"
+        assert made.state is not None and made.state.is_completed()
+        assert made.parameters == {"epochs": 3}
+
+    # Each task's job keeps its files in its flow run's folder. The
+    # second run was launched in the same second, so its name has -2.
+    folder = f"flows/here/{STAMP}-here"
+    assert run.output_uri == f"s3://{BUCKET.name}/{folder}/"
+    payloads = [key for key in backend.puts if key.endswith("payload.json")]
+    assert len(payloads) == 4
+    for name in (f"{STAMP}-here", f"{STAMP}-2-here"):
+        prefix = f"flows/here/{name}/double-"
+        assert sum(key.startswith(prefix) for key in payloads) == 2

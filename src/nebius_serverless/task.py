@@ -348,16 +348,30 @@ class Task:
         its ``result()`` raises ``TaskFailed``. A run that is still
         waiting for its inputs when the script ends is not started.
         """
+        return self._start(args, kwargs, folder=None)
+
+    def _start(
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        *,
+        folder: str | None,
+    ) -> "TaskRun":
+        """``submit``, with the pipeline run's folder when there is one."""
         if _has_runs((args, kwargs)):
-            return self._submit_later(args, kwargs)
+            return self._submit_later(args, kwargs, folder=folder)
 
         def work(progress: Progress) -> "TaskRun":
-            return self._submit(args, kwargs, progress)
+            return self._submit(args, kwargs, progress, folder=folder)
 
         return call_progress(quiet=False, logger_name=_LOG, work=work)
 
     def _submit_later(
-        self, args: tuple[Any, ...], kwargs: dict[str, Any]
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        *,
+        folder: str | None = None,
     ) -> "TaskRun":
         """Return a run now, and start its job when its inputs are done."""
         self._check_names(args, kwargs)
@@ -371,7 +385,9 @@ class Task:
                     return
 
                 def work(progress: Progress) -> "TaskRun":
-                    return self._submit(ready_args, ready_kwargs, progress)
+                    return self._submit(
+                        ready_args, ready_kwargs, progress, folder=folder
+                    )
 
                 run._started(
                     call_progress(quiet=False, logger_name=_LOG, work=work)
@@ -386,7 +402,7 @@ class Task:
         ).start()
         return run
 
-    def to_prefect(self, **options: Any) -> Any:
+    def to_prefect(self, *, folder: str | None = None, **options: Any) -> Any:
         """Return this task as a Prefect task.
 
         Calling the Prefect task in a flow runs this task's job and
@@ -402,6 +418,11 @@ class Task:
         run's log. With ``NS_CONSOLE_JOB_URL`` set to the console
         address of a job, with ``{project}`` and ``{job}`` in it,
         ``nebius-job`` links to the job.
+
+        ``folder`` is the pipeline run's folder in the bucket, such as
+        ``flows/<pipeline>/<run>``. Each job's files then go under
+        ``<folder>/<job name>``. Without it, ``NS_TASK_FOLDER`` is used
+        when set, and ``tasks/<task name>/<UTC time>`` otherwise.
 
         ``options`` go to ``prefect.task``, for example ``retries=2``.
         The Prefect task is named after this task unless ``name`` is
@@ -419,7 +440,7 @@ class Task:
             ) from None
 
         def run(*args: Any, **kwargs: Any) -> Any:
-            started = self.submit(*args, **kwargs)
+            started = self._start(args, kwargs, folder=folder)
             _show_started(started)
             try:
                 value = started.result()
@@ -496,10 +517,12 @@ class Task:
         run_name: str | None = None,
         job_name: str | None = None,
         key: str | None = None,
+        folder: str | None = None,
     ) -> "TaskRun":
         """Start one run. ``run_name``, ``job_name`` and ``key`` replace
         the run's time stamp, the job's ``<task>-<time>`` name, and the
-        run's folder in the bucket."""
+        run's folder in the bucket. ``folder`` is the pipeline run's
+        folder that the run's own folder goes in."""
         bound = self._bind(args, kwargs)
         options = dict(self._options)
         project, region = resolve_location(
@@ -516,19 +539,19 @@ class Task:
             run_name = _run_name(self.name)
         job_name = job_name or f"{self.name}-{run_name}"
         if key is None:
-            key = _run_key(self.name, run_name, job_name)
+            key = _run_key(self.name, run_name, job_name, folder)
         command, files, payload = self._job_files(bound, key, libs_key)
         if payload is not None:
             backend.put(bucket, f"{key}/payload.json", payload)
         volumes = [f"{bucket.id}:{MOUNT}:rw", *options.pop("volumes", ())]
-        with _staged(files) as folder:
+        with _staged(files) as staged:
             spec = JobSpec(
                 command,
                 image=image,
                 name=job_name,
                 volumes=volumes,
                 inject_files=[
-                    f"{folder / item}:{JOB_DIR}/{item}" for item in files
+                    f"{staged / item}:{JOB_DIR}/{item}" for item in files
                 ],
                 **options,
             )
@@ -763,6 +786,10 @@ class TaskRun:
     _project: str
     _output_path: str
     _output_uri: str
+    # Set on the run of a PrefectFlow's job: its flow run in Prefect,
+    # when it was created at submit.
+    flow_run_id: str | None = None
+    flow_run_url: str | None = None
 
     def __init__(
         self,
@@ -1108,16 +1135,21 @@ class MountedTaskBackend(SdkTaskBackend):
         return (self._root / key).is_file()
 
 
-def _run_key(task: str, run_name: str, job_name: str) -> str:
+def _run_key(
+    task: str, run_name: str, job_name: str, folder: str | None = None
+) -> str:
     """The folder of one run in the bucket.
 
     In a pipeline: ``flows/<pipeline>/<run>/<task>``, where ``<task>``
     is the name of the task's job, such as
     ``train-baseline-20261125-121050``.
-    The pipeline's flow job sets where that is. A task run on its own
-    has no pipeline: ``tasks/<task name>/<UTC time>``.
+    The pipeline passes its run's folder, or its flow job sets it in
+    ``NS_TASK_FOLDER``. A task run on its own has no pipeline:
+    ``tasks/<task name>/<UTC time>``.
     """
-    folder = os.environ.get(FOLDER_ENV, "").strip("/")
+    if folder is None:
+        folder = os.environ.get(FOLDER_ENV, "")
+    folder = folder.strip("/")
     if folder:
         return f"{folder}/{job_name}"
     return f"tasks/{task}/{run_name}"

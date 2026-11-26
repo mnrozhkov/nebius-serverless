@@ -2,8 +2,10 @@
 
 Prototype. A ``PrefectFlow`` wraps a function that calls ``ns.Task``
 objects. ``submit`` starts one Nebius job that runs the function as a
-Prefect flow, and that job starts the tasks' jobs. Constructing a
-``PrefectFlow`` does not contact Nebius.
+Prefect flow, and that job starts the tasks' jobs. With
+``remote_job=False`` the flow runs in this process instead. Either way
+the flow run is created in Prefect at submit, so its link is known at
+once. Constructing a ``PrefectFlow`` does not contact Nebius.
 """
 
 import base64
@@ -11,6 +13,7 @@ import builtins
 import inspect
 import json
 import os
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -35,6 +38,9 @@ SECRET_NAME = "generated-tasks-credentials"
 TOKEN_ENV = "NEBIUS_IAM_TOKEN"
 PREFECT_URL_ENV = "PREFECT_API_URL"
 PREFECT_AUTH_ENV = "PREFECT_API_AUTH_STRING"
+# The Prefect UI's address. Without it, the API address without its
+# trailing /api.
+PREFECT_UI_ENV = "PREFECT_UI_URL"
 # Where the Prefect server's login is read from when it is not in the
 # environment or in Prefect's settings: one line, ``user:password``.
 PREFECT_AUTH_FILE = Path("~/.config/prefect/auth")
@@ -42,13 +48,14 @@ _PREFECT_TIMEOUT = 10.0
 _TOKEN_TIMEOUT = 30.0
 
 # The default image of a flow job: Python, Prefect, and what this
-# package needs. Prefect here must not be newer than the Prefect server.
+# package needs. Prefect here must not be newer than the Prefect server;
+# submit checks that.
 IMAGE_NAME = "prefect-flow"
 DOCKERFILE = """\
 FROM python:3.12-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --compile-bytecode \\
-    prefect==3.8.8 nebius==0.6.43 "PyYAML>=6" "rich>=13"
+    prefect==3.9.5 nebius==0.6.43 "PyYAML>=6" "rich>=13"
 """
 
 
@@ -60,20 +67,37 @@ def _default_image() -> Image:
 
 image_prefect = _default_image()
 
+_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
 
 class PrefectFlow:
-    """A pipeline of tasks that runs as a Prefect flow on a Nebius job.
+    """A pipeline of tasks that runs as a Prefect flow.
 
     Pass a function that calls ``ns.Task`` objects. ``submit`` starts
-    one job that runs the function as a Prefect flow and returns at
-    once, so the flow keeps running after your script has ended. That
-    job starts the tasks' jobs. Calling the ``PrefectFlow`` starts it
-    and waits for the function's result.
+    one Nebius job that runs the function as a Prefect flow and returns
+    at once, so the flow keeps running after your script has ended.
+    That job starts the tasks' jobs. Calling the ``PrefectFlow`` starts
+    it and waits for the function's result.
 
-    In the job every task is a Prefect task, so ``task(...)`` and
+    With ``remote_job=False`` the flow runs in this process, and the
+    tasks' jobs are started from here with your Nebius profile. This
+    needs the ``prefect`` package here. ``submit`` runs the flow in a
+    thread and returns at once, but the script does not end before the
+    flow does. Calling the ``PrefectFlow`` runs the flow and returns
+    its result.
+
+    Every task is a Prefect task, so ``task(...)`` and
     ``task.submit(...)`` each make a Prefect task run. The function
-    needs no ``@flow`` decorator, and Prefect is not needed on your
-    machine.
+    needs no ``@flow`` decorator, and with the flow job Prefect is not
+    needed on your machine.
+
+    The flow run is created in Prefect at submit and stays Pending
+    until the flow starts. Its link is logged, and is on the returned
+    run as ``flow_run_url``. When the Prefect server cannot be reached
+    from here, there is no link, and the flow creates its run when it
+    starts. ``submit`` stops when the server runs an older Prefect than
+    the flow would: the one in the default image, or the one installed
+    here with ``remote_job=False``.
 
     The function's source is sent to the job. From outside its own body
     it may use ``ns.Task`` objects, constants with JSON values, and
@@ -84,7 +108,7 @@ class PrefectFlow:
     your machine, when the flow is submitted. The flow job needs none
     of the tasks' code.
 
-    The flow job starts jobs as you. A fresh access token, and the
+    A flow job starts jobs as you. A fresh access token, and the
     Prefect server's login when there is one, are written as a new
     version of the ``generated-tasks-credentials`` secret in MysteryBox
     and reach the job as environment variables. Versions are not
@@ -103,11 +127,15 @@ class PrefectFlow:
             ``20261125-091833-mnist-baseline``. The time is UTC.
         api_url: The Prefect server's API address. Defaults to
             ``PREFECT_API_URL``.
+        remote_job: Run the flow on a Nebius job (the default), or in
+            this process with ``False``.
         image: An ``ns.Image`` or an image reference for the flow job.
             Defaults to a slim Python image with Prefect, built once
-            per project.
+            per project. Not used with ``remote_job=False``.
         **job_options: Options for the flow job, as on ``JobSpec``:
             ``timeout`` (default 24h), ``cpu``, ``disk`` and the rest.
+            With ``remote_job=False`` only ``profile`` and ``project``
+            are used: they choose where the tasks' images are built.
 
     Example::
 
@@ -137,6 +165,7 @@ class PrefectFlow:
         flow_name: str,
         run_name: str | None = None,
         api_url: str | None = None,
+        remote_job: bool = True,
         image: Image | str | None = None,
         **job_options: Any,
     ) -> None:
@@ -172,6 +201,7 @@ class PrefectFlow:
                 operation=_OP,
             )
         self.api_url = api
+        self.remote_job = bool(remote_job)
         self.image: Image | str
         if image is None:
             self.image = image_prefect
@@ -196,38 +226,71 @@ class PrefectFlow:
         return f"PrefectFlow({self.flow_name!r}, tasks={sorted(self._tasks)})"
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
-        """Start the flow job, wait for it, and return the result.
+        """Run the flow, wait for it, and return the result.
 
-        Interrupting the wait with Ctrl-C cancels the flow job. The
-        tasks' jobs it started are not cancelled.
+        Interrupting the wait with Ctrl-C cancels the flow job, or
+        stops the flow with ``remote_job=False``. The tasks' jobs it
+        started are not cancelled.
         """
-        run = self.submit(*args, **kwargs)
+        if not self.remote_job:
+
+            def prepare(progress: Progress) -> tuple["FlowRun", dict]:
+                return self._prepare_here(args, kwargs, progress)
+
+            handle, flow = call_progress(
+                quiet=False, logger_name=_LOG, work=prepare
+            )
+            return self._run_here(flow, handle)
+
+        def work(progress: Progress) -> TaskRun:
+            return self._submit(args, kwargs, progress)
+
+        run = call_progress(quiet=False, logger_name=_LOG, work=work)
         try:
             return run.result()
         except KeyboardInterrupt:
             run._cancel()
             raise
 
-    def submit(self, *args: Any, **kwargs: Any) -> TaskRun:
-        """Start the flow job and return its run at once.
+    def submit(self, *args: Any, **kwargs: Any) -> "TaskRun | FlowRun":
+        """Start the flow and return its run at once.
 
         Builds the images and uploads the libraries of the tasks the
-        function uses, when they changed, and writes the credentials.
-        It does not wait for the flow. ``result()`` on the run waits
-        and returns the function's result.
+        function uses, when they changed, and creates the flow run in
+        Prefect. With the flow job it also writes the credentials and
+        returns the job's ``TaskRun``. With ``remote_job=False`` it
+        returns a ``FlowRun`` while the flow runs in a thread. It does
+        not wait for the flow. ``result()`` on the run waits and
+        returns the function's result.
         """
+        if not self.remote_job:
+
+            def prepare(progress: Progress) -> tuple["FlowRun", dict]:
+                return self._prepare_here(args, kwargs, progress)
+
+            handle, flow = call_progress(
+                quiet=False, logger_name=_LOG, work=prepare
+            )
+            handle._start(lambda: self._run_here(flow, handle))
+            return handle
 
         def work(progress: Progress) -> TaskRun:
             return self._submit(args, kwargs, progress)
 
         return call_progress(quiet=False, logger_name=_LOG, work=work)
 
-    def _submit(
+    def _begin(
         self,
         args: tuple[Any, ...],
         kwargs: dict[str, Any],
-        progress: Progress,
-    ) -> TaskRun:
+        version: str | None,
+        where: str,
+    ) -> "_Start":
+        """Check the arguments and the Prefect server, and name the run.
+
+        ``version`` is the Prefect that will run the flow, ``where`` says
+        where it is. Fails before anything is built or started.
+        """
         try:
             bound = self.__signature__.bind(*args, **kwargs)
         except TypeError as exc:
@@ -242,7 +305,126 @@ class PrefectFlow:
                 operation=_OP,
             ) from None
         login = _prefect_login()
-        _check_prefect(self.api_url, login)
+        server = _check_prefect(self.api_url, login)
+        _check_versions(self.api_url, server, version, where)
+        # One launch time names the run everywhere: its folder in the
+        # bucket, the flow job, and the flow run in Prefect.
+        launched = _task._run_name(self.name)
+        job_name = f"{launched}-{_task._plain_name(self.run_name)}"
+        return _Start(
+            parameters=dict(bound.arguments),
+            login=login,
+            launched=launched,
+            job_name=job_name,
+            run_title=f"{launched}-{self.run_name}",
+            # The bucket is laid out as flows/<pipeline>/<run>/<task>.
+            folder=f"{_task.FLOWS_ROOT}/{self.name}/{job_name}",
+        )
+
+    def _flow_run(self, start: "_Start", progress: Progress) -> str | None:
+        """Create the flow run in Prefect and log its link."""
+        run_id = _create_flow_run(
+            self.api_url,
+            start.login,
+            self.flow_name,
+            start.run_title,
+            start.parameters,
+        )
+        if run_id is None:
+            _task._say(
+                progress,
+                f"Could not create the flow run at {self.api_url} from "
+                "here. The flow creates it when it starts.",
+            )
+        else:
+            _task._say(
+                progress,
+                f"Prefect flow run: {_ui_url(self.api_url, run_id)}",
+            )
+        return run_id
+
+    def _flow(
+        self,
+        start: "_Start",
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        run_id: str | None,
+    ) -> dict[str, Any]:
+        """What runs the flow: the same in the job and here."""
+        return {
+            "title": self.flow_name,
+            "run_title": start.run_title,
+            "function": self.function.__name__,
+            "source": self._source,
+            "args": list(args),
+            "kwargs": dict(kwargs),
+            "parameters": start.parameters,
+            "constants": self._constants,
+            "folder": start.folder,
+            "flow_run_id": run_id,
+        }
+
+    def _prepare_here(
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        progress: Progress,
+    ) -> tuple["FlowRun", dict[str, Any]]:
+        """Get a flow ready to run in this process."""
+        version = _local_prefect()
+        start = self._begin(args, kwargs, version, "installed here")
+        # The tasks' images are built and their libraries uploaded now,
+        # one after another, and not by tasks that start together.
+        options = _task._plain_options(self._options)
+        profile = options.get("profile")
+        project, _ = resolve_location(
+            profile=profile, project=options.get("project"), region=None
+        )
+        backend = _task._backend(profile)
+        bucket, created = backend.ensure_bucket(project)
+        if created:
+            _task._say(
+                progress, f"Created bucket {bucket.name} ({bucket.id})."
+            )
+        for item in self._tasks.values():
+            item._prepare(progress, backend, bucket)
+        run_id = self._flow_run(start, progress)
+        handle = FlowRun(
+            name=start.launched,
+            title=start.run_title,
+            inputs=start.parameters,
+            flow_run_id=run_id,
+            flow_run_url=_ui_url(self.api_url, run_id) if run_id else None,
+            output_path=f"{_task.MOUNT}/{start.folder}",
+            output_uri=f"s3://{bucket.name}/{start.folder}/",
+        )
+        handle._login = start.login
+        return handle, self._flow(start, args, kwargs, run_id)
+
+    def _run_here(self, flow: dict[str, Any], handle: "FlowRun") -> Any:
+        """Run the flow in this process, with this flow's server."""
+        from prefect.settings import (  # type: ignore[import-not-found]
+            PREFECT_API_AUTH_STRING,
+            PREFECT_API_URL,
+            temporary_settings,
+        )
+
+        updates: dict[Any, Any] = {PREFECT_API_URL: self.api_url}
+        if handle._login:
+            updates[PREFECT_API_AUTH_STRING] = handle._login
+        with temporary_settings(updates=updates):
+            return _execute(flow, self._tasks)
+
+    def _submit(
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        progress: Progress,
+    ) -> TaskRun:
+        version = None
+        if self.image is image_prefect:
+            version = _pinned_prefect()
+        start = self._begin(args, kwargs, version, "in the flow job's image")
         options = _task._plain_options(self._options)
         profile = options.get("profile")
         project, region = resolve_location(
@@ -263,21 +445,15 @@ class PrefectFlow:
             _own_package(), backend, bucket, progress, "this package"
         )
         values = {TOKEN_ENV: _access_token(profile)}
-        if login:
-            values[PREFECT_AUTH_ENV] = login
-        version = _store_credentials(project, profile, values)
+        if start.login:
+            values[PREFECT_AUTH_ENV] = start.login
+        version_id = _store_credentials(project, profile, values)
         secrets = dict(options.pop("secrets", None) or {})
-        secrets.update({item: version for item in values})
+        secrets.update({item: version_id for item in values})
         env = dict(options.pop("env", None) or {})
         env[PREFECT_URL_ENV] = self.api_url
-        # One launch time names the run everywhere: its folder in the
-        # bucket, the flow job, and the flow run in Prefect.
-        launched = _task._run_name(self.name)
-        job_name = f"{launched}-{_task._plain_name(self.run_name)}"
-        # The bucket is laid out as flows/<pipeline>/<run>/<task>. The
-        # flow job tells its tasks where the run's folder is.
-        folder = f"{_task.FLOWS_ROOT}/{self.name}/{job_name}"
-        env[_task.FOLDER_ENV] = folder
+        # The flow job tells its tasks where the run's folder is.
+        env[_task.FOLDER_ENV] = start.folder
         template = os.environ.get(_task.CONSOLE_ENV)
         if template:
             env.setdefault(_task.CONSOLE_ENV, template)
@@ -296,27 +472,35 @@ class PrefectFlow:
                 "options": {**options, "env": env, "secrets": secrets},
             }
         )
+        run_id = self._flow_run(start, progress)
         flow = {
-            "title": self.flow_name,
-            "run_title": f"{launched}-{self.run_name}",
-            "function": self.function.__name__,
-            "source": self._source,
-            "args": list(args),
-            "kwargs": dict(kwargs),
-            "constants": self._constants,
+            **self._flow(start, args, kwargs, run_id),
             "tasks": records,
             "project": project,
             "region": region,
         }
-        run = runner._submit(
-            (),
-            {"flow": flow},
-            progress,
-            run_name=launched,
-            job_name=job_name,
-            key=f"{folder}/{_task.FLOW_FOLDER}",
-        )
-        run.inputs = dict(bound.arguments)
+        try:
+            run = runner._submit(
+                (),
+                {"flow": flow},
+                progress,
+                run_name=start.launched,
+                job_name=start.job_name,
+                key=f"{start.folder}/{_task.FLOW_FOLDER}",
+            )
+        except BaseException as exc:
+            if run_id is not None:
+                _mark_crashed(
+                    self.api_url,
+                    start.login,
+                    run_id,
+                    f"The flow job did not start: {exc}",
+                )
+            raise
+        run.inputs = start.parameters
+        if run_id is not None:
+            run.flow_run_id = run_id
+            run.flow_run_url = _ui_url(self.api_url, run_id)
         return run
 
     def _image(self, progress: Progress) -> str:
@@ -338,30 +522,144 @@ class PrefectFlow:
             return ref
 
 
-def _run_flow(flow: dict[str, Any]) -> Any:
-    """Run a submitted function as a Prefect flow. Runs in the flow job.
+class _Start:
+    """A run's names and the checked arguments, before it starts."""
 
-    The tasks come back from their records as Prefect tasks and are
-    bound, with the constants, to the names the function uses.
+    def __init__(
+        self,
+        *,
+        parameters: dict[str, Any],
+        login: str | None,
+        launched: str,
+        job_name: str,
+        run_title: str,
+        folder: str,
+    ) -> None:
+        self.parameters = parameters
+        self.login = login
+        self.launched = launched
+        self.job_name = job_name
+        self.run_title = run_title
+        self.folder = folder
+
+
+class FlowRun:
+    """A ``PrefectFlow`` run in this process (``remote_job=False``).
+
+    ``result()`` waits for the flow and returns the function's result,
+    or raises what the flow raised. ``name`` is the UTC launch time,
+    and ``title`` the flow run's name in Prefect. ``flow_run_url`` is
+    the flow run's page in the Prefect UI, when the run could be
+    created at submit. ``output_path`` and ``output_uri`` are the run's
+    folder in the bucket, with one folder per task job in it. A flow in
+    this process has no job, so ``job`` is ``None``.
+    """
+
+    job = None
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        title: str,
+        inputs: dict[str, Any],
+        flow_run_id: str | None,
+        flow_run_url: str | None,
+        output_path: str,
+        output_uri: str,
+    ) -> None:
+        self.name = name
+        self.title = title
+        self.inputs = inputs
+        self.flow_run_id = flow_run_id
+        self.flow_run_url = flow_run_url
+        self.output_path = output_path
+        self.output_uri = output_uri
+        self._login: str | None = None
+        self._thread: threading.Thread | None = None
+        self._value: Any = None
+        self._error: BaseException | None = None
+
+    def __repr__(self) -> str:
+        return f"FlowRun({self.title!r}, url={self.flow_run_url!r})"
+
+    def _start(self, work: Callable[[], Any]) -> None:
+        def target() -> None:
+            try:
+                self._value = work()
+            except BaseException as exc:
+                self._error = exc
+
+        # Not a daemon: the script waits for the flow before it ends.
+        self._thread = threading.Thread(
+            target=target, name=f"ns-flow-{self.title}"
+        )
+        self._thread.start()
+
+    def result(self) -> Any:
+        """Wait for the flow and return the function's result."""
+        if self._thread is not None:
+            self._thread.join()
+        if self._error is not None:
+            raise self._error
+        return self._value
+
+
+def _execute(flow: dict[str, Any], tasks: dict[str, Task]) -> Any:
+    """Run a flow function as a Prefect flow, here or in the flow job.
+
+    The tasks become Prefect tasks that keep their files in the run's
+    folder. They are bound, with the constants, to the names the
+    function uses. When the flow run was created at submit, this run
+    becomes it.
     """
     from prefect import (  # type: ignore[import-not-found]
         flow as prefect_flow,
     )
 
+    folder = flow.get("folder")
+    scope: dict[str, Any] = {"__name__": "__ns_flow__", **flow["constants"]}
+    for alias, item in tasks.items():
+        scope[alias] = item.to_prefect(folder=folder)
+    exec(compile(flow["source"], "<ns.PrefectFlow source>", "exec"), scope)
+    run_title = str(flow["run_title"])
+    # A function, so that braces in the name are not read as a template.
+    # Prefect renames a run it is given after it, so it is the same.
+    wrapped = prefect_flow(
+        name=flow["title"], flow_run_name=lambda: run_title, log_prints=True
+    )(scope[flow["function"]])
+    run_id = flow.get("flow_run_id")
+    if not run_id:
+        return wrapped(*flow["args"], **flow["kwargs"])
+
+    from uuid import UUID
+
+    from prefect.client.orchestration import (  # type: ignore[import-not-found]
+        get_client,
+    )
+    from prefect.flow_engine import (  # type: ignore[import-not-found]
+        run_flow,
+    )
+
+    with get_client(sync_client=True) as client:
+        flow_run = client.read_flow_run(UUID(str(run_id)))
+    return run_flow(wrapped, flow_run=flow_run, parameters=flow["parameters"])
+
+
+def _run_flow(flow: dict[str, Any]) -> Any:
+    """Run a submitted function as a Prefect flow. Runs in the flow job.
+
+    The tasks come back from their records.
+    """
     from .session import configure
 
     # A job has no CLI profile: the project and region were sent along.
     configure(project=flow["project"], region=flow["region"])
-    scope: dict[str, Any] = {"__name__": "__ns_flow__", **flow["constants"]}
-    for alias, record in flow["tasks"].items():
-        scope[alias] = Task._from_record(record).to_prefect()
-    exec(compile(flow["source"], "<ns.PrefectFlow source>", "exec"), scope)
-    run_title = str(flow["run_title"])
-    # A function, so that braces in the name are not read as a template.
-    wrapped = prefect_flow(
-        name=flow["title"], flow_run_name=lambda: run_title, log_prints=True
-    )(scope[flow["function"]])
-    return wrapped(*flow["args"], **flow["kwargs"])
+    tasks = {
+        alias: Task._from_record(record)
+        for alias, record in flow["tasks"].items()
+    }
+    return _execute(flow, tasks)
 
 
 def _used(
@@ -465,26 +763,50 @@ def _prefect_login() -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _check_prefect(api_url: str, login: str | None) -> None:
-    """Fail now if the Prefect server will refuse the flow job.
-
-    Asks the server for its version with the login the job would get.
-    A refusal raises, before any image is built or job started. A
-    server that cannot be reached from this machine is not an error:
-    the job may still reach it.
-    """
-    request = urllib.request.Request(api_url.rstrip("/") + "/admin/version")
+def _request(
+    api_url: str,
+    path: str,
+    login: str | None,
+    body: object = None,
+) -> urllib.request.Request:
+    """A request to the Prefect API, with the login when there is one."""
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(
+        api_url.rstrip("/") + path,
+        data=data,
+        method="GET" if data is None else "POST",
+    )
+    if data is not None:
+        request.add_header("Content-Type", "application/json")
     if login:
         token = base64.b64encode(login.encode()).decode()
         request.add_header("Authorization", f"Basic {token}")
+    return request
+
+
+def _check_prefect(api_url: str, login: str | None) -> str | None:
+    """Fail now if the Prefect server will refuse the flow.
+
+    Asks the server for its version with the login the flow would get,
+    and returns it. A refusal raises, before any image is built or job
+    started. A server that cannot be reached from this machine is not
+    an error: the job may still reach it. The version is then None.
+    """
+    request = _request(api_url, "/admin/version", login)
     try:
-        with urllib.request.urlopen(request, timeout=_PREFECT_TIMEOUT):
-            return
+        with urllib.request.urlopen(
+            request, timeout=_PREFECT_TIMEOUT
+        ) as reply:
+            try:
+                version = json.loads(reply.read())
+            except (AttributeError, ValueError):
+                return None
+            return version if isinstance(version, str) else None
     except urllib.error.HTTPError as exc:
         if exc.code not in (401, 403):
-            return
+            return None
     except (urllib.error.URLError, OSError, ValueError):
-        return
+        return None
     where = (
         f"Set {PREFECT_AUTH_ENV} to user:password, or put it on one "
         f"line in {PREFECT_AUTH_FILE}."
@@ -501,6 +823,130 @@ def _check_prefect(api_url: str, login: str | None) -> None:
         operation=_OP,
         recovery=where,
     )
+
+
+def _version(text: str | None) -> tuple[int, int, int] | None:
+    """``major.minor.patch`` of a version, or None when there is none."""
+    found = _VERSION.match(text.strip()) if text else None
+    if found is None:
+        return None
+    major, minor, patch = (int(part) for part in found.groups())
+    return major, minor, patch
+
+
+def _pinned_prefect() -> str | None:
+    """The Prefect version in the default flow job image."""
+    found = re.search(r"prefect==(\S+)", DOCKERFILE)
+    return found.group(1) if found else None
+
+
+def _local_prefect() -> str:
+    """The Prefect version installed here. Fails when there is none."""
+    try:
+        import prefect  # type: ignore[import-not-found]
+    except ImportError:
+        raise ValidationError(
+            "A flow with remote_job=False needs the prefect package on "
+            "this machine.",
+            operation=_OP,
+            recovery="Install it: pip install prefect",
+        ) from None
+    return str(getattr(prefect, "__version__", ""))
+
+
+def _check_versions(
+    api_url: str, server: str | None, client: str | None, where: str
+) -> None:
+    """Fail when the server runs an older Prefect than the flow would.
+
+    Nothing is checked when either version is unknown.
+    """
+    have, need = _version(server), _version(client)
+    if have is None or need is None or have >= need:
+        return
+    raise ValidationError(
+        f"The Prefect server at {api_url} runs Prefect {server}, older "
+        f"than the Prefect {client} {where}.",
+        operation=_OP,
+        recovery=(
+            f"Upgrade the Prefect server to {client} or later, or run the "
+            f"flow with Prefect {server}."
+        ),
+    )
+
+
+def _ui_url(api_url: str, run_id: str) -> str:
+    """The flow run's page in the Prefect UI."""
+    base = os.environ.get(PREFECT_UI_ENV, "").strip()
+    if not base:
+        base = api_url.rstrip("/")
+        if base.endswith("/api"):
+            base = base[: -len("/api")]
+    return f"{base.rstrip('/')}/runs/flow-run/{run_id}"
+
+
+def _post(
+    api_url: str, path: str, login: str | None, body: object
+) -> dict[str, Any]:
+    request = _request(api_url, path, login, body)
+    with urllib.request.urlopen(request, timeout=_PREFECT_TIMEOUT) as reply:
+        loaded = json.loads(reply.read())
+    if not isinstance(loaded, dict):
+        raise ValueError(f"{path} returned {type(loaded).__name__}")
+    return loaded
+
+
+def _create_flow_run(
+    api_url: str,
+    login: str | None,
+    flow_name: str,
+    run_title: str,
+    parameters: dict[str, Any],
+) -> str | None:
+    """Create a Pending flow run and return its id.
+
+    The flow is found by its name, or created. Returns None when the
+    server cannot be reached or refuses: the flow then creates its run
+    when it starts.
+    """
+    try:
+        found = _post(api_url, "/flows/", login, {"name": flow_name})
+        created = _post(
+            api_url,
+            "/flow_runs/",
+            login,
+            {
+                "flow_id": found["id"],
+                "name": run_title,
+                "parameters": parameters,
+                "state": {"type": "PENDING", "name": "Pending"},
+            },
+        )
+        return str(created["id"])
+    except (urllib.error.URLError, OSError, ValueError, KeyError):
+        return None
+
+
+def _mark_crashed(
+    api_url: str, login: str | None, run_id: str, message: str
+) -> None:
+    """Mark a flow run Crashed, when its flow job did not start."""
+    try:
+        _post(
+            api_url,
+            f"/flow_runs/{run_id}/set_state",
+            login,
+            {
+                "state": {
+                    "type": "CRASHED",
+                    "name": "Crashed",
+                    "message": message[:500],
+                },
+                "force": True,
+            },
+        )
+    except (urllib.error.URLError, OSError, ValueError):
+        pass
 
 
 def _store_credentials(

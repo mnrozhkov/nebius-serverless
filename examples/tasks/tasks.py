@@ -1,6 +1,6 @@
 """The tasks and constants of the baseline experiment.
 
-``train.py`` and ``train_prefect.py`` import them from here. Import
+``train.py`` imports them from here. Import
 this module from this folder, so that ``ns.Image`` finds the
 Dockerfile. ``include_libs`` takes import names, so ``src`` is
 found the same way ``import src`` finds it.

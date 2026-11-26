@@ -7,7 +7,8 @@ Companion to `task_proposal.md` in this folder.
 ## Summary
 
 `ns.PrefectFlow` runs a pipeline of tasks as a Prefect flow on a Nebius
-job, in the background. The user has tasks, with their images and
+job, in the background, or with `remote_job=False` in the user's own
+process. The user has tasks, with their images and
 local libraries, and a function that calls them. `PrefectFlow` takes
 that function and hides the rest: the credentials, the bucket, the
 project, Prefect's setup, and getting the tasks into the job.
@@ -82,6 +83,10 @@ Decided in discussion:
   describes.
 - Each run writes a new secret version. Earlier versions are not
   deleted, and other jobs are not checked.
+- With `remote_job=False` the same flow runs in the user's process,
+  recorded on the same server. It needs Prefect on the user's machine.
+- The flow run is created in Prefect at submit, so its link is shown at
+  once, before the flow starts.
 - All of this is inside `ns.Task` and `ns.PrefectFlow`. The user
   writes no code for credentials, the bucket or the project.
 - For now the flow job acts as the user, with the user's access token.
@@ -102,7 +107,8 @@ ns.PrefectFlow(
     *,
     flow_name=...,          # the flow's name in Prefect. Required
     run_name=None,          # a name for the runs. Default: flow_name
-    api_url=None,           # the Prefect server. Default: the local Prefect setting
+    api_url=None,           # the Prefect server. Default: PREFECT_API_URL
+    remote_job=True,        # False: run the flow in this process
     image=image_prefect,    # ns.Image or a reference. Default: see "The image"
     timeout="24h",          # of the flow job
     **job_options,          # as on JobSpec: cpu, disk, env, secrets, ...
@@ -111,18 +117,18 @@ ns.PrefectFlow(
 
 | Call | Behavior |
 |---|---|
-| `flow.submit(**arguments)` | Start the flow job and return its run at once. |
-| `flow(**arguments)` | Start it, wait, and return the function's result. |
-| `flow.local(**arguments)` | Run the function on this machine, as a Prefect flow. |
+| `flow.submit(**arguments)` | Start the flow job and return its run at once. With `remote_job=False`, start the flow in a thread here and return a `FlowRun` at once. |
+| `flow(**arguments)` | Start it, wait, and return the function's result. With `remote_job=False`, run the flow in this thread. |
 
 The run returned by `submit`:
 
 | Member | Meaning |
 |---|---|
 | `run.name` | The run's launch time, in UTC. |
-| `run.job` | The flow job. |
+| `run.job` | The flow job. `None` with `remote_job=False`. |
+| `run.flow_run_url` | The flow run's page in the Prefect UI, or `None` when it could not be created at submit. `run.flow_run_id` is its id. |
 | `run.result()` | Wait, then return the function's result. |
-| `run.cancel()` | Stop the flow job and the task jobs it started. |
+| `run.cancel()` | Stop the flow job and the task jobs it started. Not built. |
 
 Why the function and its arguments are given separately: in
 `PrefectFlow(flow=baseline(5))` Python calls `baseline(5)` first, on
@@ -154,25 +160,66 @@ be run as a plain script, as a local flow, and as a flow job.
 On the user's machine:
 
 1. The tasks the function uses are found.
-2. For each task: its image is built if needed, its `include_libs` are
+2. The Prefect server is asked for its version, with the login the
+   flow will use. A refused login, or a server older than the Prefect
+   in the default image, stops here, before anything is built.
+3. For each task: its image is built if needed, its `include_libs` are
    uploaded if they changed, and a record is made.
-3. The payload is written to the run's folder in the managed bucket:
-   the function's source, the arguments, the constants and the task
-   records.
 4. Credentials are written as a new version of a secret.
-5. The flow job is created. Only the runner and a pointer to the
-   payload are injected into it.
+5. The flow run is created in Prefect, Pending, under the run's name,
+   with the arguments as its parameters. Its link is logged. When the
+   server cannot be reached from the user's machine, this is skipped
+   and the flow creates its run when it starts.
+6. The payload is written to the run's folder in the managed bucket:
+   the function's source, the arguments, the constants, the task
+   records, the run's folder and the flow run's id.
+7. The flow job is created. Only the runner and a pointer to the
+   payload are injected into it. If it cannot be created, the flow run
+   is marked Crashed.
 
 In the flow job:
 
 1. The runner reads the payload through the bucket mount and checks it
    against the checksum in the pointer.
 2. It rebuilds each task from its record and wraps it as a Prefect
-   task.
-3. It wraps the function as a Prefect flow named `name` and runs it
-   with the arguments, with the tasks and constants bound to the names
-   the function uses.
+   task that keeps its files in the run's folder.
+3. It wraps the function as a Prefect flow named `flow_name` and runs
+   it with the arguments, with the tasks and constants bound to the
+   names the function uses. With a flow run id, Prefect runs that
+   flow run: Pending becomes Running, and no second run is made.
 4. The function's return value is written as the run's result.
+
+## Running the flow here (`remote_job=False`)
+
+```python
+flow = ns.PrefectFlow(
+    baseline, flow_name="mnist-baseline", api_url=..., remote_job=False
+)
+run = flow.submit(epochs=5)   # the flow runs in a thread of this process
+print(run.flow_run_url)
+print(run.result())
+```
+
+The flow is the same, and so is what Prefect shows. What changes:
+
+- It needs the `prefect` package on the user's machine, no older than
+  the server's. `submit` checks both before anything is built.
+- There is no flow job, no flow image, no copy of this package and no
+  credentials secret. The tasks' jobs are started from the user's
+  process with the user's Nebius profile. The Prefect address and
+  login are set for the flow only, so `~/.config/prefect/auth` works
+  here too.
+- The tasks' images are built and their libraries uploaded at submit,
+  one after another, so tasks that start together do not build the
+  same image at once.
+- The function runs from its source, as in the job, so the same rules
+  apply: a function that runs here also runs on a flow job.
+- `submit` returns at once, but the flow's thread is not a daemon: the
+  script ends when the flow does. `flow(...)` runs it in the calling
+  thread, so Ctrl-C stops it. The task jobs already started keep
+  running.
+- `image` and the job options are for the flow job. Only `profile` and
+  `project` are used here.
 
 ## Task records
 
@@ -278,7 +325,7 @@ image_prefect = ns.Image(dockerfile_string="""\
 FROM python:3.12-slim-bookworm
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv pip install --system --compile-bytecode \\
-    prefect==3.8.8 nebius==0.6.43 "PyYAML>=6" "rich>=13"
+    prefect==3.9.5 nebius==0.6.43 "PyYAML>=6" "rich>=13"
 """)
 ```
 
@@ -287,8 +334,9 @@ on. It has nothing of the tasks in it.
 
 - **Prefect's version.** Prefect in the image must not be newer than
   the Prefect server. The default pins one version, which is then the
-  oldest server it works with. A flow for an older server passes its
-  own image.
+  oldest server it works with. `submit` reads the server's version and
+  stops when it is older. A flow for an older server passes its own
+  image, whose Prefect is not checked.
 - **This package.** The flow starts jobs with it, so the job needs
   it. `PrefectFlow` sends its own copy with the flow job, the way
   `include_libs` sends a library. The image needs only the package's
@@ -313,8 +361,8 @@ before building:
   `uv:latest` and `PyYAML>=6` stay at the versions that build got,
   until the text changes.
 
-Possible later: read the server's version from `api_url` and build
-the default image with exactly that Prefect version.
+Possible later: build the default image with exactly the server's
+Prefect version, which `submit` already reads.
 
 ## Behavior
 
@@ -352,8 +400,14 @@ the default image with exactly that Prefect version.
   ```
 
   Each folder holds that job's `payload.json`, its `result.json` and
-  its `files/`. The flow job sets `NS_TASK_FOLDER` so that the tasks
-  it starts know the run's folder. Library archives stay in `libs/`.
+  its `files/`. Each task is given the run's folder when it is wrapped
+  as a Prefect task. The flow job also sets `NS_TASK_FOLDER` to it.
+  With `remote_job=False` the layout is the same, without `flow/`.
+  Library archives stay in `libs/`.
+- **A link to the flow run.** The flow run is created at submit, so
+  its link is known before the flow starts: the API address without
+  `/api`, then `/runs/flow-run/<id>`. `PREFECT_UI_URL` replaces the
+  first part when the UI is elsewhere.
 - **What Prefect shows for a task.** Each task run has three Markdown
   artifacts: `nebius-job` (the job's id, its name, the command for
   its logs, where its files are) and `inputs`, written when the job
@@ -389,9 +443,16 @@ In `ns.PrefectFlow` (`flow.py`):
   and the function runs as a Prefect flow with project and region
   set.
 - `flow.submit(...)` and `flow(...)`.
+- The flow run created at submit, its link, and the check of the
+  server's Prefect version.
+- `remote_job=False`: the flow in the user's process, and `FlowRun`.
 
-Not built: `run.cancel()` stopping the task jobs, `flow.local()`,
-Prefect options per task (such as retries), a service account.
+Checked with a temporary Prefect 3.9.5 server in the tests: a flow run
+created at submit over the REST API is the one the flow runs in, it
+ends Completed, and the task jobs' files are in the run's folder.
+
+Not built: `run.cancel()` stopping the task jobs, Prefect options per
+task (such as retries), a service account.
 
 The earlier hand-written `credentials.py`, `train_prefect_job.py` and
 `images/flow/Dockerfile` are removed.
@@ -406,6 +467,7 @@ The earlier hand-written `credentials.py`, `train_prefect_job.py` and
 4. The console address of a job's page, to make the link a default.
 5. Where Prefect options for one task, such as retries, are given.
 6. Whether `PrefectFlow` without `api_url` should run with no Prefect
-   at all, or be a separate class.
+   at all, or be a separate class. For now the plain function is that:
+   `train.py` runs it as is with `--mode local`.
 7. Whether a Prefect worker on Nebius, for schedules and runs started
    from the Prefect UI, is wanted later.
