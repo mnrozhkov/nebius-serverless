@@ -974,8 +974,14 @@ class TaskRun:
             ok = body["ok"]
         except (ValueError, KeyError, TypeError):
             return False, self._failed("wrote an unreadable result", state)
-        if ok:
+        if ok and _done(state):
             return True, body.get("value")
+        if ok:
+            # A result counts only from a completed job: one that ended
+            # otherwise may have been cut short after writing it.
+            return False, self._failed(
+                f"returned a value, but its job ended {state}", state
+            )
         error = body.get("error") or {}
         remote = str(error.get("traceback") or "")
         message = (

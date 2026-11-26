@@ -345,6 +345,23 @@ def test_a_job_without_a_result_fails(
         ns.Task(double, image=IMAGE)(1)
 
 
+def test_a_result_counts_only_from_a_completed_job(
+    backend: FakeBackend,
+    transport: RunningTransport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execute = transport._execute
+
+    def then_error(spec: object) -> None:
+        execute(spec)
+        transport.states = ["ERROR"]
+
+    monkeypatch.setattr(transport, "_execute", then_error)
+    with pytest.raises(ns.TaskFailed, match="job ended ERROR") as caught:
+        ns.Task(double, image=IMAGE)(1)
+    assert caught.value.state == "ERROR"
+
+
 def test_an_imported_function_is_run_by_name(
     package: Path, backend: FakeBackend, transport: RunningTransport
 ) -> None:
