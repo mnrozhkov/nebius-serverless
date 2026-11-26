@@ -54,9 +54,12 @@ def _core_module(node: ast.ImportFrom, path: Path) -> bool:
             module.startswith("nebius_serverless.")
             and not module.startswith("nebius_serverless.integrations")
         )
+    # The number of packages between the module and nebius_serverless:
+    # 2 for integrations/prefect/flow.py. A relative import climbs one
+    # package per dot past the first, so it reaches nebius_serverless
+    # with more dots than that.
     depth = len(path.relative_to(PACKAGE).parts) - 1
-    # Relative imports that climb out of integrations/ reach the core.
-    return node.level > depth - 1 and not (node.module or "").startswith(
+    return node.level > depth and not (node.module or "").startswith(
         "integrations"
     )
 
