@@ -38,7 +38,7 @@ MOUNT = "/ns"
 JOB_DIR = "/ns-task"
 
 
-# Where include_libs are unpacked in the job.
+# Where local_libs are unpacked in the job.
 LIBS_DIR = "/tmp/ns-libs"
 
 

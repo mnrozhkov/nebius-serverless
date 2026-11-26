@@ -1,4 +1,4 @@
-"""ns.Task: inputs, naming, the job request, include_libs, and results."""
+"""ns.Task: inputs, naming, the job request, local_libs, and results."""
 
 import importlib
 import inspect
@@ -368,7 +368,7 @@ def test_an_imported_function_is_run_by_name(
     package: Path, backend: FakeBackend, transport: RunningTransport
 ) -> None:
     triple = importlib.import_module("demo_pkg.mathx").triple
-    task = ns.Task(triple, image=IMAGE, include_libs=["demo_pkg"])
+    task = ns.Task(triple, image=IMAGE, local_libs=["demo_pkg"])
     assert task(5) == 15
     assert task(6) == 18
     # The archive is uploaded once and has no cache files.
@@ -381,7 +381,7 @@ def test_an_imported_function_is_run_by_name(
 def test_an_edit_uploads_a_new_archive(
     package: Path, backend: FakeBackend, transport: RunningTransport
 ) -> None:
-    task = ns.Task(unpacks, image=IMAGE, include_libs=["demo_pkg"])
+    task = ns.Task(unpacks, image=IMAGE, local_libs=["demo_pkg"])
     assert task(1) == 2
     (package / "sub" / "deep.py").write_text("def one():\n    return 10\n")
     assert task(1) == 11
@@ -391,7 +391,7 @@ def test_an_edit_uploads_a_new_archive(
 def test_a_part_of_a_package_keeps_its_import_name(
     package: Path, backend: FakeBackend, transport: RunningTransport
 ) -> None:
-    task = ns.Task(unpacks, image=IMAGE, include_libs=["demo_pkg.sub"])
+    task = ns.Task(unpacks, image=IMAGE, local_libs=["demo_pkg.sub"])
     assert task(1) == 2
     unpacked = Path(runner_module.LIBS_DIR) / "demo_pkg"
     assert (unpacked / "__init__.py").is_file()
@@ -399,19 +399,19 @@ def test_a_part_of_a_package_keeps_its_import_name(
     assert not (unpacked / "mathx.py").exists()
 
 
-def test_include_libs_takes_local_import_names(package: Path) -> None:
+def test_local_libs_takes_local_import_names(package: Path) -> None:
     with pytest.raises(ns.ValidationError, match="import names"):
-        ns.Task(double, image=IMAGE, include_libs=["./demo_pkg"])
+        ns.Task(double, image=IMAGE, local_libs=["./demo_pkg"])
     with pytest.raises(ns.ValidationError, match="import names"):
-        ns.Task(double, image=IMAGE, include_libs="demo_pkg")
+        ns.Task(double, image=IMAGE, local_libs="demo_pkg")
     with pytest.raises(ns.ValidationError, match="cannot be imported"):
-        ns.Task(double, image=IMAGE, include_libs=["no_such_pkg_xyz"])
+        ns.Task(double, image=IMAGE, local_libs=["no_such_pkg_xyz"])
     with pytest.raises(ns.ValidationError, match="was not found"):
-        ns.Task(double, image=IMAGE, include_libs=["demo_pkg.missing"])
+        ns.Task(double, image=IMAGE, local_libs=["demo_pkg.missing"])
     with pytest.raises(ns.ValidationError, match="installed package"):
-        ns.Task(double, image=IMAGE, include_libs=["yaml"])
+        ns.Task(double, image=IMAGE, local_libs=["yaml"])
     with pytest.raises(ns.ValidationError, match="installed package|not a"):
-        ns.Task(double, image=IMAGE, include_libs=["json"])
+        ns.Task(double, image=IMAGE, local_libs=["json"])
 
 
 def test_the_script_declares_inputs_and_collects_outputs(
@@ -475,7 +475,7 @@ def test_a_script_runs_in_bash(
         name="hello",
         image=IMAGE,
         inputs=["who"],
-        include_libs=["demo_pkg"],
+        local_libs=["demo_pkg"],
         command="""
         outputs[greeting]="hello ${inputs[who]}"
         echo data > "$NS_OUTPUT_DIR/a.txt"

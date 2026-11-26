@@ -31,12 +31,12 @@ A function that raises, a script that exits non-zero, or a job that ends without
 
 ## Your own code
 
-A function defined in your script is sent as source. To use a package from your project, list it in `include_libs`: it is uploaded once per change, and the job imports the function by name.
+A function defined in your script is sent as source. To use a package from your project, list it in `local_libs`: it is uploaded once per change, and the job imports the function by name.
 
 ```python
 from mylib.training import train_model
 
-train = ns.Task(train_model, image=image, include_libs=["mylib"], gpu="h100", timeout="2h")
+train = ns.Task(train_model, image=image, local_libs=["mylib"], gpu="h100", timeout="2h")
 ```
 
 `image` can be an [`ns.Image`](first-image.md): it is built on the first run and reused after that.

@@ -5,7 +5,7 @@ same function can be called on your machine or sent to a job.
 
 It uses the data, model and helper modules of this library. They are
 available in a job because the whole ``lib`` package is sent with
-``include_libs``.
+``local_libs``.
 
 ``torch`` is imported inside the functions, not at the top, so the
 module can be imported on a machine that does not have ``torch``.

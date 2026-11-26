@@ -1,7 +1,7 @@
 """The tasks and constants of the MNIST baseline experiment.
 
 ``train.py`` imports them from here. Run it from this folder: the tasks
-send the local package ``lib`` with ``include_libs=["lib"]``, which is
+send the local package ``lib`` with ``local_libs=["lib"]``, which is
 found the same way ``import lib`` finds it.
 
 The training tasks share one image, built from ``DOCKERFILE`` on the
@@ -64,7 +64,7 @@ prepare = ns.Task(
     prepare_data,
     name="prepare-data",
     image=image_torch,
-    include_libs=["lib"],
+    local_libs=["lib"],
     timeout="30m",
 )
 
@@ -86,7 +86,7 @@ train = ns.Task(
     train_step,
     name="train-baseline",
     image=image_torch,
-    include_libs=["lib"],
+    local_libs=["lib"],
     gpu="h100",
     pricing="spot",
     timeout="2h",
@@ -105,7 +105,7 @@ evaluate = ns.Task(
     evaluate_step,
     name="evaluate",
     image=image_torch,
-    include_libs=["lib"],
+    local_libs=["lib"],
     gpu="h100",
     timeout="30m",
 )

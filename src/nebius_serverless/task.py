@@ -86,7 +86,7 @@ class Task:
     starts the job and returns a ``TaskRun`` at once.
 
     A function gets its arguments as JSON values and must return a JSON
-    value. If it comes from a package listed in ``include_libs``, the
+    value. If it comes from a package listed in ``local_libs``, the
     job imports it by name. Otherwise its source is sent, so it must be
     self-contained: imports go inside the body, and it must not use
     names from the surrounding file. The image needs ``python3``.
@@ -113,7 +113,7 @@ class Task:
         inputs: The names of a script's inputs.
         image: An ``ns.Image``, built on the first run, or an image
             reference.
-        include_libs: Import names of local packages or modules to send
+        local_libs: Import names of local packages or modules to send
             with the task, such as ``"tasks"`` or ``"tasks.training"``.
         name: The task's name. Defaults to the function's name. Required
             for a script. Each run's job is named ``<name>-<UTC time>``.
@@ -149,7 +149,7 @@ class Task:
         command: str | None = None,
         inputs: Sequence[str] | None = None,
         image: Image | str,
-        include_libs: Sequence[str] = (),
+        local_libs: Sequence[str] = (),
         name: str | None = None,
         **job_options: Any,
     ) -> None:
@@ -161,7 +161,7 @@ class Task:
         self.image: Image | str = (
             image if isinstance(image, Image) else validate_image(image)
         )
-        self.include_libs = validate_libs(include_libs)
+        self.local_libs = validate_libs(local_libs)
         self._options = validate_options(job_options)
         self.function = function
         self.command: str | None = None
@@ -221,7 +221,7 @@ class Task:
         """Start a job for this task and return its run at once.
 
         The first run builds the image when it is an ``ns.Image`` that
-        has not been built, and uploads ``include_libs`` when they
+        has not been built, and uploads ``local_libs`` when they
         changed. It does not wait for the job. Call ``result()`` on the
         run for that.
 
@@ -298,7 +298,7 @@ class Task:
             )
         module = function.__module__ or ""
         self._qualname = function.__qualname__
-        if covered(module, self.include_libs):
+        if covered(module, self.local_libs):
             if "<locals>" in self._qualname:
                 raise ValidationError(
                     f"{function.__name__} is defined inside another "
@@ -420,7 +420,7 @@ class Task:
         if self._fixed:
             assert isinstance(self.image, str)
             return self.image, self._libs_key
-        libs = pack_libs(self.include_libs)
+        libs = pack_libs(self.local_libs)
         image = self._image(progress)
         return image, upload_libs(libs, backend, bucket, progress)
 
@@ -454,7 +454,7 @@ class Task:
         """A task made from a record. It needs no local code to submit."""
         task = cls.__new__(cls)
         task.image = str(record["image"])
-        task.include_libs = ()
+        task.local_libs = ()
         task._options = dict(record["options"])
         task.function = None
         task.command = record.get("command")
@@ -995,7 +995,7 @@ def validate_options(options: dict[str, Any]) -> dict[str, Any]:
     """Check the job options now, so a mistake does not wait for a run."""
     if "inject_files" in options:
         raise ValidationError(
-            "inject_files is not available on a task. Use include_libs "
+            "inject_files is not available on a task. Use local_libs "
             "for code, and volumes for data.",
             operation=_OP,
         )

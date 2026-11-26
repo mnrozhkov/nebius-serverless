@@ -281,7 +281,7 @@ def test_a_task_from_its_record_runs_without_its_code(
     package: Path, backend: FakeBackend, transport: RunningTransport
 ) -> None:
     progress = task_module.Progress(quiet=True, logger_name="test")
-    original = ns.Task(unpacks, image=IMAGE, include_libs=["demo_pkg"])
+    original = ns.Task(unpacks, image=IMAGE, local_libs=["demo_pkg"])
     record = json.loads(
         json.dumps(task_record(original, progress, backend, BUCKET))
     )
@@ -294,7 +294,7 @@ def test_a_task_from_its_record_runs_without_its_code(
     assert len([key for key in backend.puts if key.startswith("libs/")]) == 1
 
     triple = importlib.import_module("demo_pkg.mathx").triple
-    by_name = ns.Task(triple, image=IMAGE, include_libs=["demo_pkg"])
+    by_name = ns.Task(triple, image=IMAGE, local_libs=["demo_pkg"])
     again = task_from_record(task_record(by_name, progress, backend, BUCKET))
     assert again(4) == 12
 

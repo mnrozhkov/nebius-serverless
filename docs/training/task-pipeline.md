@@ -18,7 +18,7 @@ The code is in [`examples/tasks/mnist/`](https://github.com/mnrozhkov/nebius-ser
 | --- | --- |
 | `tasks.py` | The image and the five tasks. |
 | `train.py` | The pipeline and the command line: plain Python, or a Prefect flow. |
-| `lib/` | An ordinary Python package: data loading, the model, training, evaluation. Tasks send it to their jobs with `include_libs=["lib"]`. |
+| `lib/` | An ordinary Python package: data loading, the model, training, evaluation. Tasks send it to their jobs with `local_libs=["lib"]`. |
 
 ## Run it
 

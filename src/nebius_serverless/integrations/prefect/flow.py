@@ -75,7 +75,7 @@ class PrefectFlow:
     what it imports inside its body. Its arguments and its return value
     must be JSON values.
 
-    The tasks' images are built and their ``include_libs`` uploaded on
+    The tasks' images are built and their ``local_libs`` uploaded on
     your machine, when the flow is submitted. The flow job needs none
     of the tasks' code.
 

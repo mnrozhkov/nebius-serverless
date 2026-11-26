@@ -11,7 +11,7 @@ ns.Task(
     command=None,
     inputs=None,
     image,
-    include_libs=(),
+    local_libs=(),
     name=None,
     **job_options,
 )
@@ -23,17 +23,17 @@ ns.Task(
 | `command` | one of these two | A bash script, run with `set -e`. The image needs bash 4 or newer. |
 | `inputs` | no | A script's input names: letters, digits, and underscores. Not used with a function, whose inputs are its arguments. |
 | `image` | yes | An [`ns.Image`](images.md), built on the first run and reused after that, or an image reference such as `python:3.12-slim-bookworm`. A function task needs `python3` in the image. |
-| `include_libs` | no | Import names of local packages or modules to send with the task, such as `["mylib"]` or `["mylib.training"]`. |
+| `local_libs` | no | Import names of local packages or modules to send with the task, such as `["mylib"]` or `["mylib.training"]`. |
 | `name` | for a script | The task's name. Defaults to the function's name. Lowercased, with other characters turned into hyphens, at most 40 characters. Each run's job is named `<name>-<UTC time>`. |
-| `**job_options` | no | Options of the job, as on [`JobSpec`](jobs.md#jobspec): `gpu`, `cpu`, `pricing`, `timeout` (default `24h`), `disk`, `volumes`, `env`, `secrets`, `profile`, `project`, and the rest. They are checked here, so a mistake fails at once. `inject_files` is not available: use `include_libs` for code and `volumes` for data. |
+| `**job_options` | no | Options of the job, as on [`JobSpec`](jobs.md#jobspec): `gpu`, `cpu`, `pricing`, `timeout` (default `24h`), `disk`, `volumes`, `env`, `secrets`, `profile`, `project`, and the rest. They are checked here, so a mistake fails at once. `inject_files` is not available: use `local_libs` for code and `volumes` for data. |
 
-Constructing a `Task` does not contact Nebius. After construction these attributes are readable: `name`, `function`, `command`, `inputs`, `image`, `include_libs`.
+Constructing a `Task` does not contact Nebius. After construction these attributes are readable: `name`, `function`, `command`, `inputs`, `image`, `local_libs`.
 
 ### Functions
 
 A function is sent in one of two ways:
 
-- **By name.** When it comes from a package in `include_libs`, the package is uploaded and the job imports the function. It must be defined at module level.
+- **By name.** When it comes from a package in `local_libs`, the package is uploaded and the job imports the function. It must be defined at module level.
 - **As source.** Otherwise its source is sent on its own. It must be self-contained: imports and helpers go inside its body, and it must not use names from the surrounding file, decorators, or variables of an enclosing function. Type annotations are dropped, so they may name anything.
 
 The function gets its arguments as JSON values and must return a JSON value.
@@ -76,7 +76,7 @@ Start a job, wait for it, and return the function's return value or the script's
 task.submit(*args, **kwargs) -> TaskRun
 ```
 
-Start a job and return its run at once. The first run builds the image when it is an `ns.Image`, and uploads `include_libs` when they changed.
+Start a job and return its run at once. The first run builds the image when it is an `ns.Image`, and uploads `local_libs` when they changed.
 
 An argument may be a `TaskRun`, or a list or dict that holds runs. `submit` still returns at once: the job starts when those runs have finished, with their results in their place. If one of them fails, this run is not started and its `result()` raises `TaskFailed`. A run still waiting for its inputs when the script ends is never started.
 

@@ -69,7 +69,7 @@ Start the flow and return its run at once.
 
 1. Checks the arguments, and that the Prefect server answers and accepts the login. It stops if the server runs an older Prefect than the flow would use.
 2. Creates the flow run in Prefect, and prints its link. The run stays Pending until the flow starts. When the server cannot be reached from here, there is no link, and the flow creates its run when it starts.
-3. Builds the images and uploads the `include_libs` of the tasks the function uses, when they changed. This happens here, so the flow job needs none of the tasks' code.
+3. Builds the images and uploads the `local_libs` of the tasks the function uses, when they changed. This happens here, so the flow job needs none of the tasks' code.
 4. With `remote_job=True`, stores the credentials and starts the flow job. If that fails, the flow run is marked Crashed. With `remote_job=False`, runs the flow in a thread; the script does not end before the flow does.
 
 ### `PrefectFlow.__call__`

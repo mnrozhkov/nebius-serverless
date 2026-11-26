@@ -1,6 +1,6 @@
-"""Code that travels with a task: ``include_libs`` and function source.
+"""Code that travels with a task: ``local_libs`` and function source.
 
-A package listed in ``include_libs`` is packed into one archive, the
+A package listed in ``local_libs`` is packed into one archive, the
 same bytes for the same files, and uploaded once per change. A function
 from anywhere else is sent as its source, checked to stand on its own.
 """
@@ -35,7 +35,7 @@ _LIB_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 @dataclass(frozen=True)
 class Libs:
-    """The include_libs archive, its content hash, and its file count."""
+    """The local_libs archive, its content hash, and its file count."""
 
     data: bytes
     digest: str
@@ -45,13 +45,13 @@ class Libs:
 def validate_libs(names: object) -> tuple[str, ...]:
     if isinstance(names, str) or not isinstance(names, Sequence):
         raise ValidationError(
-            'include_libs must be a list of import names, such as ["tasks"].',
+            'local_libs must be a list of import names, such as ["tasks"].',
             operation=_OP,
         )
     for name in names:
         if not isinstance(name, str) or not _LIB_NAME.fullmatch(name):
             raise ValidationError(
-                f"include_libs takes import names such as 'tasks' or "
+                f"local_libs takes import names such as 'tasks' or "
                 f"'tasks.training', not {name!r}.",
                 operation=_OP,
             )
@@ -78,7 +78,7 @@ def _lib_files(name: str) -> list[tuple[str, Path]]:
         spec = None
     if spec is None:
         raise ValidationError(
-            f"include_libs: {top!r} cannot be imported here. Run from "
+            f"local_libs: {top!r} cannot be imported here. Run from "
             "the folder that contains it, or add that folder to "
             "sys.path.",
             operation=_OP,
@@ -89,13 +89,13 @@ def _lib_files(name: str) -> list[tuple[str, Path]]:
         current = Path(spec.origin)
     else:
         raise ValidationError(
-            f"include_libs: {top!r} is not a local Python package or module.",
+            f"local_libs: {top!r} is not a local Python package or module.",
             operation=_OP,
         )
     current = current.resolve()
     if _installed(current):
         raise ValidationError(
-            f"include_libs: {top!r} is an installed package. Install it "
+            f"local_libs: {top!r} is an installed package. Install it "
             "in the image instead.",
             operation=_OP,
         )
@@ -104,7 +104,7 @@ def _lib_files(name: str) -> list[tuple[str, Path]]:
     for part in rest:
         if not current.is_dir():
             raise ValidationError(
-                f"include_libs: {name!r} was not found.", operation=_OP
+                f"local_libs: {name!r} was not found.", operation=_OP
             )
         init = current / "__init__.py"
         if init.is_file():
@@ -121,7 +121,7 @@ def _lib_files(name: str) -> list[tuple[str, Path]]:
         files.append(current)
     else:
         raise ValidationError(
-            f"include_libs: {name!r} was not found.", operation=_OP
+            f"local_libs: {name!r} was not found.", operation=_OP
         )
     return [(path.relative_to(base).as_posix(), path) for path in files]
 
@@ -174,7 +174,7 @@ def upload_libs(
     backend: SdkTaskBackend,
     bucket: Bucket,
     progress: Progress,
-    what: str = "include_libs",
+    what: str = "local_libs",
 ) -> str | None:
     """Upload an archive unless the bucket has it. Returns its key."""
     if libs is None:
@@ -207,7 +207,7 @@ def function_source(
         raise ValidationError(
             f"The source of {name} cannot be read, so it cannot be "
             "sent. Define it in a file, or put it in a package listed "
-            "in include_libs.",
+            "in local_libs.",
             operation=_OP,
         ) from None
     node = tree.body[0] if tree.body else None
@@ -221,7 +221,7 @@ def function_source(
     if node.decorator_list:
         raise ValidationError(
             f"{name} has a decorator, which cannot be sent with it. "
-            "Put it in a package listed in include_libs.",
+            "Put it in a package listed in local_libs.",
             operation=_OP,
         )
     if getattr(function, "__closure__", None):
@@ -243,7 +243,7 @@ def function_source(
             f"{name} uses names from the surrounding file: "
             f"{', '.join(outside)}. Its source is sent on its own, so "
             "put imports and helpers inside the function, or put the "
-            "function in a package listed in include_libs.",
+            "function in a package listed in local_libs.",
             operation=_OP,
         )
     # Annotations may name things the job does not have.
