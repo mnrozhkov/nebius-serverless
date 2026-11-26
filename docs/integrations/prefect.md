@@ -1,11 +1,21 @@
-# Prefect flows
+# Prefect
 
-`ns.PrefectFlow` runs a function that calls [tasks](tasks.md) as a [Prefect](https://www.prefect.io/) flow. By default the flow runs on its own small Nebius job, which starts the tasks' jobs, so it keeps going after your script ends. With `remote_job=False` it runs in your process. Either way, every task call is a Prefect task run and a Nebius job.
+`PrefectFlow` runs a function that calls [tasks](../reference/tasks.md) as a [Prefect](https://www.prefect.io/) flow. By default the flow runs on its own small Nebius job, which starts the tasks' jobs, so it keeps going after your script ends. With `remote_job=False` it runs in your process. Either way, every task call is a Prefect task run and a Nebius job.
+
+```python
+from nebius_serverless.integrations.prefect import PrefectFlow
+```
+
+Importing `nebius_serverless` does not load this integration. Running a flow on a Nebius job needs nothing more on your machine. Running it here (`remote_job=False`) needs Prefect:
+
+```bash
+pip install "nebius-serverless[prefect]"
+```
 
 ## PrefectFlow
 
 ```python
-ns.PrefectFlow(
+PrefectFlow(
     function,
     *,
     flow_name,
@@ -23,9 +33,9 @@ ns.PrefectFlow(
 | `flow_name` | yes | The flow's name in Prefect. |
 | `run_name` | no | A name for the runs. Defaults to `flow_name`. Each run is named `<UTC launch time>-<run_name>`, such as `20261125-091833-mnist-baseline`, in Prefect and as the flow job. |
 | `api_url` | no | The Prefect server's API address, such as `https://prefect.example.com/api`. Defaults to `PREFECT_API_URL`; one of the two is required. |
-| `remote_job` | no | `True` (default) runs the flow on a Nebius job. `False` runs it in this process, which needs the `prefect` package here. |
-| `image` | no | An [`ns.Image`](images.md) or an image reference for the flow job. Defaults to a slim Python image with Prefect, built once per project. Not used with `remote_job=False`. |
-| `**job_options` | no | Options of the flow job, as on [`JobSpec`](jobs.md#jobspec): `timeout` (default `24h`), `cpu`, `disk`, and the rest. Without `gpu` or `cpu` it runs on the smallest CPU machine. With `remote_job=False` only `profile` and `project` are used. |
+| `remote_job` | no | `True` (default) runs the flow on a Nebius job. `False` runs it in this process. |
+| `image` | no | An [`ns.Image`](../reference/images.md) or an image reference for the flow job. Defaults to a slim Python image with Prefect, built once per project. Not used with `remote_job=False`. |
+| `**job_options` | no | Options of the flow job, as on [`JobSpec`](../reference/jobs.md#jobspec): `timeout` (default `24h`), `cpu`, `disk`, and the rest. Without `gpu` or `cpu` it runs on the smallest CPU machine. With `remote_job=False` only `profile` and `project` are used. |
 
 Constructing a `PrefectFlow` does not contact Nebius. After construction these attributes are readable: `function`, `flow_name`, `run_name`, `api_url`, `remote_job`, `image`.
 
@@ -45,24 +55,22 @@ def pipeline(epochs: int = 5) -> dict:
     runs = [train.submit(data=data, lr=lr, epochs=epochs) for lr in RATES]
     return pick(runs=runs)
 
-flow = ns.PrefectFlow(pipeline, flow_name="mnist-baseline", timeout="3h")
+flow = PrefectFlow(pipeline, flow_name="mnist-baseline", timeout="3h")
 run = flow.submit(epochs=5)
 ```
 
 ### `PrefectFlow.submit`
 
 ```python
-flow.submit(*args, **kwargs) -> TaskRun | FlowRun
+flow.submit(*args, **kwargs) -> FlowRun
 ```
 
 Start the flow and return its run at once.
 
 1. Checks the arguments, and that the Prefect server answers and accepts the login. It stops if the server runs an older Prefect than the flow would use.
-2. Builds the images and uploads the `include_libs` of the tasks the function uses, when they changed. This happens here, so the flow job needs none of the tasks' code.
-3. Creates the flow run in Prefect, and prints its link. The run stays Pending until the flow starts. When the server cannot be reached from here, there is no link, and the flow creates its run when it starts.
-4. With `remote_job=True`, stores the credentials and starts the flow job, then returns that job's [`TaskRun`](tasks.md#taskrun). With `remote_job=False`, runs the flow in a thread and returns a `FlowRun`; the script does not end before the flow does.
-
-`result()` on either run waits and returns the function's result. The flow run's link is on `run.flow_run_url`.
+2. Creates the flow run in Prefect, and prints its link. The run stays Pending until the flow starts. When the server cannot be reached from here, there is no link, and the flow creates its run when it starts.
+3. Builds the images and uploads the `include_libs` of the tasks the function uses, when they changed. This happens here, so the flow job needs none of the tasks' code.
+4. With `remote_job=True`, stores the credentials and starts the flow job. If that fails, the flow run is marked Crashed. With `remote_job=False`, runs the flow in a thread; the script does not end before the flow does.
 
 ### `PrefectFlow.__call__`
 
@@ -70,23 +78,34 @@ Start the flow and return its run at once.
 flow(*args, **kwargs) -> Any
 ```
 
-Run the flow, wait for it, and return the function's result. Ctrl-C cancels the flow job, or stops the flow with `remote_job=False`. Task jobs it already started are not cancelled.
+Run the flow, wait for it, and return the function's result. Ctrl-C cancels the flow job. Task jobs it already started are not cancelled.
 
 ## FlowRun
 
-The run of a flow in this process (`remote_job=False`). The flow job's run is a [`TaskRun`](tasks.md#taskrun) with the same `flow_run_id` and `flow_run_url`.
+One run of a flow, returned by `submit`.
 
 | Member | Meaning |
 | --- | --- |
-| `result()` | Wait for the flow and return the function's result, or raise what the flow raised. |
+| `result()` | Wait for the flow and return the function's result. Raises `TaskFailed` when the flow job failed, or what the flow raised here. |
+| `cancel()` | Cancel the flow job. A flow in this process is not stopped. |
 | `name` | The UTC launch time. |
 | `title` | The flow run's name in Prefect. |
 | `inputs` | The function's arguments by name. |
 | `flow_run_id`, `flow_run_url` | The flow run in Prefect and its page in the UI, or `None` when it could not be created at submit. |
-| `output_path`, `output_uri` | The run's folder in the task bucket, with one folder per task job in it. |
-| `job` | Always `None`: a flow in this process has no job. |
+| `output_path`, `output_uri` | The run's folder in the task bucket: `flow/` for the flow job, and one folder per task job. |
+| `job` | The flow job, a [`Job`](../reference/jobs.md#job), or `None` for a flow in this process. `job_run` is its [`TaskRun`](../reference/tasks.md#taskrun). |
 
-## Prefect server and login
+## Task runs in Prefect
+
+Each task call is a Prefect task run. A failure raises `TaskFailed`, so Prefect marks the task run failed. Each task run gets three Markdown artifacts:
+
+- `nebius-job`: the job id, its name, the command for its logs, and where its files are.
+- `inputs`, when the job has started.
+- `outputs`, when it has ended.
+
+The same goes to the task run's log.
+
+## Server and login
 
 | Variable | Meaning |
 | --- | --- |

@@ -83,6 +83,9 @@ nav:
   - ⚡ Inference:
       - inference/index.md
       - Serve a model with vLLM: inference/vllm-endpoint.md
+  - 🔌 Integrations:
+      - integrations/index.md
+      - Prefect: integrations/prefect.md
   - 📖 Guides:
       - guides/index.md
       - Choose a machine and pricing: guides/machines.md
@@ -100,7 +103,6 @@ nav:
       - Endpoints: reference/endpoints.md
       - Images: reference/images.md
       - Tasks: reference/tasks.md
-      - Prefect flows: reference/flows.md
       - Session and auth: reference/session.md
       - CLI and API map: reference/cli-api-map.md
       - Errors: reference/errors.md

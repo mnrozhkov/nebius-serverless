@@ -71,6 +71,7 @@ The documentation site is [mnrozhkov.github.io/nebius-serverless](https://mnrozh
 - [🚀 Quickstarts](https://mnrozhkov.github.io/nebius-serverless/quickstarts/): install, first job, first endpoint, first image, first task, first Prefect flow, notebooks
 - [🏋️ Training](https://mnrozhkov.github.io/nebius-serverless/training/): fine-tuning with Axolotl, a parallel sweep, a pipeline of tasks
 - [⚡ Inference](https://mnrozhkov.github.io/nebius-serverless/inference/): serve a model with vLLM
+- [🔌 Integrations](https://mnrozhkov.github.io/nebius-serverless/integrations/): run tasks as a Prefect flow
 - [📖 Guides](https://mnrozhkov.github.io/nebius-serverless/guides/): machines, storage, secrets, retries, CI, YAML and the CLI
 - [📚 Reference](https://mnrozhkov.github.io/nebius-serverless/reference/): every class, function, and error
 

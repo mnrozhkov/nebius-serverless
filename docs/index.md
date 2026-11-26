@@ -33,6 +33,12 @@ Unofficial Python client for Nebius Serverless AI Jobs and Endpoints. Describe a
 
     Serve a model behind an OpenAI-compatible API.
 
+-   :material-connection: **[Integrations](integrations/index.md)**
+
+    ---
+
+    Run tasks from an orchestrator: Prefect.
+
 -   :material-book-open-variant: **[Guides](guides/index.md)**
 
     ---

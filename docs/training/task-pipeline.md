@@ -1,6 +1,6 @@
 # Pipeline of tasks
 
-Train a small image classifier on MNIST with four learning rates at once, evaluate each result, and pick the best one. Every step is an [`ns.Task`](../reference/tasks.md), and the same pipeline runs as plain Python or as a [Prefect flow](../reference/flows.md).
+Train a small image classifier on MNIST with four learning rates at once, evaluate each result, and pick the best one. Every step is an [`ns.Task`](../reference/tasks.md), and the same pipeline runs as plain Python or as a [Prefect flow](../integrations/prefect.md).
 
 ```mermaid
 flowchart LR
@@ -12,17 +12,18 @@ flowchart LR
     e1 & e2 & e3 & e4 --> aggregate["aggregate<br>CPU"]
 ```
 
-The code is in [`examples/tasks/`](https://github.com/mnrozhkov/nebius-serverless/tree/main/examples/tasks):
+The code is in [`examples/tasks/mnist/`](https://github.com/mnrozhkov/nebius-serverless/tree/main/examples/tasks/mnist):
 
 | File | What it holds |
 | --- | --- |
 | `tasks.py` | The image and the five tasks. |
-| `train.py` | The pipeline and the command line. |
-| `src/` | An ordinary Python package: data loading, the model, training, evaluation. Tasks send it to their jobs with `include_libs=["src"]`. |
+| `train.py` | The pipeline, run as plain Python. |
+| `train_prefect.py` | The same pipeline as a Prefect flow. |
+| `lib/` | An ordinary Python package: data loading, the model, training, evaluation. Tasks send it to their jobs with `include_libs=["lib"]`. |
 
 ## Run it
 
-From `examples/tasks/`, with [Object Storage credentials](../reference/tasks.md#files-and-the-task-bucket) set:
+From `examples/tasks/mnist/`, with [Object Storage credentials](../reference/tasks.md#files-and-the-task-bucket) set:
 
 === "Plain Python"
 
@@ -30,25 +31,25 @@ From `examples/tasks/`, with [Object Storage credentials](../reference/tasks.md#
     python train.py
     ```
 
-    The script starts every job and waits for the result. No Prefect is needed.
-
-=== "Prefect, flow here"
-
-    ```bash
-    export PREFECT_API_URL=https://prefect.example.com/api
-    python train.py --mode prefect-local
-    ```
-
-    `pipeline` runs as the Prefect flow `mnist-baseline` in this process. Needs `pip install prefect`.
+    The script starts every job, waits, and prints the best run. No orchestrator is needed.
 
 === "Prefect, flow on a job"
 
     ```bash
     export PREFECT_API_URL=https://prefect.example.com/api
-    python train.py --mode prefect-remote
+    python train_prefect.py
     ```
 
-    `pipeline` runs as a Prefect flow on a small CPU job. The script ends once the flow job has started, and prints the link to the flow run.
+    `pipeline` runs as the Prefect flow `mnist-baseline` on a small CPU job. The script prints the link to the flow run and ends once the flow job has started. Prefect is not needed here.
+
+=== "Prefect, flow here"
+
+    ```bash
+    export PREFECT_API_URL=https://prefect.example.com/api
+    python train_prefect.py --here
+    ```
+
+    The flow runs in this process, and the script waits for the result. Needs `pip install "nebius-serverless[prefect]"`.
 
 ## How it fits together
 
@@ -57,25 +58,31 @@ From `examples/tasks/`, with [Object Storage credentials](../reference/tasks.md#
 **Three kinds of task.**
 
 - `gpu_check` is a bash script. It reads `${inputs[fields]}` and sets `outputs[gpu_name]` and others.
-- `prepare` wraps `prepare_data` from the `src` package. The job imports it by name.
-- `train` and `evaluate` wrap small functions defined in `tasks.py` that import from `src` inside their bodies. `aggregate` is a self-contained function.
+- `prepare` wraps `prepare_data` from the `lib` package. The job imports it by name.
+- `train` and `evaluate` wrap small functions defined in `tasks.py` that import from `lib` inside their bodies. `aggregate` is a self-contained function.
 
 **Runs as arguments.** `train.submit(...)` returns at once, so the four training jobs start together. Each run is passed to `evaluate.submit(trained=run, ...)`, whose job starts as soon as that training run has finished. `aggregate` gets all runs and all scores.
 
 **Files.** A task writes checkpoints to `$NS_OUTPUT_DIR` and returns the path. Every task's job sees the task bucket at the same path, so `evaluate` opens the checkpoint that `train` wrote.
 
-**Prefect.** `ns.PrefectFlow(pipeline, ...)` turns each task call into a Prefect task run with a link to its job. A run's files go to `flows/mnist-baseline/<run>/` in the bucket, one folder per task job.
+**Prefect.** `train_prefect.py` passes the same `pipeline` to `PrefectFlow`, which turns each task call into a Prefect task run with a link to its job. A run's files go to `flows/mnist-baseline/<run>/` in the bucket, one folder per task job.
 
 ## Source
 
 ??? example "tasks.py"
 
     ```python
-    --8<-- "examples/tasks/tasks.py"
+    --8<-- "examples/tasks/mnist/tasks.py"
     ```
 
 ??? example "train.py"
 
     ```python
-    --8<-- "examples/tasks/train.py"
+    --8<-- "examples/tasks/mnist/train.py"
+    ```
+
+??? example "train_prefect.py"
+
+    ```python
+    --8<-- "examples/tasks/mnist/train_prefect.py"
     ```

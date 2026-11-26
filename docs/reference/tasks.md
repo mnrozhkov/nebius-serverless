@@ -58,7 +58,7 @@ The script, with its inputs, must be at most 64 KiB. Pass large data as files.
 
 Code, arguments, and results travel through a bucket in the project, `generated-tasks-<project>`, which the first run creates. Every task's job mounts it at the same path, `/ns`, so a path one task returns can be opened by another.
 
-Each run has its own folder. A task called on its own uses `tasks/<task>/<UTC time>/`; inside a [Prefect flow](flows.md), `flows/<flow>/<run>/<job name>/`. A job can write files to `$NS_OUTPUT_DIR`, the `files/` folder of its run.
+Each run has its own folder. A task called on its own uses `tasks/<task>/<UTC time>/`; inside a [Prefect flow](../integrations/prefect.md), `flows/<flow>/<run>/<job name>/`. A job can write files to `$NS_OUTPUT_DIR`, the `files/` folder of its run.
 
 Reading results on your machine uses S3: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or the profile in `~/.aws/credentials` (`AWS_PROFILE`, default `default`). Creating the bucket needs rights to manage Object Storage in the project, otherwise `AccessError`.
 
@@ -87,14 +87,6 @@ best = pick.submit(runs=runs)  # starts when both have finished
 print(best.result())
 ```
 
-### `Task.to_prefect`
-
-```python
-task.to_prefect(*, folder=None, **options) -> prefect.Task
-```
-
-Return this task as a Prefect task. Calling it in a flow runs the job and returns the result; a failure raises `TaskFailed`, so Prefect's `retries` apply, each one a new job. Each task run gets three Markdown artifacts: `nebius-job` (job id, name, the logs command, where its files are), `inputs`, and `outputs`. `options` go to `prefect.task`. Needs the `prefect` package. [`PrefectFlow`](flows.md) calls this for you.
-
 ## TaskRun
 
 One run of a task, returned by `submit`.
@@ -102,7 +94,9 @@ One run of a task, returned by `submit`.
 | Member | Meaning |
 | --- | --- |
 | `result()` | Wait for the job and return the result. Raises `TaskFailed` when the function raised, the script exited non-zero, the job ended without a result, or the run was not started because an input failed. Later calls return or raise the same outcome without waiting. |
-| `job` | The run's [`Job`](jobs.md#job): `job.id`, `job.cancel()`, and the rest. |
+| `cancel()` | Request cancellation of the run's job. A run still waiting for its inputs is dropped and never starts. Never raises. |
+| `job` | The run's [`Job`](jobs.md#job): `job.id`, and the rest. |
+| `project` | The project the run's job is in. |
 | `name` | The UTC time the run started, such as `20261124-153922`. |
 | `task` | The task's name. |
 | `inputs` | The inputs by name, with other runs replaced by their results. |
