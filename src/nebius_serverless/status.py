@@ -14,6 +14,8 @@ Kind = Literal[
     "delete_accepted",
     "token_generated",
     "account",
+    "image",
+    "task",
     "probe",
     "resubmitted",
     "local_timeout",
@@ -27,7 +29,8 @@ class Status:
     ``kind`` is one of ``submitted``, ``snapshot``, ``transition``,
     ``terminal``, ``cancel_accepted``, ``stop_accepted``,
     ``start_accepted``, ``delete_accepted``, ``token_generated``,
-    ``account``, ``probe``, ``resubmitted``, or ``local_timeout``.
+    ``account``, ``image``, ``task``, ``probe``, ``resubmitted``, or
+    ``local_timeout``.
     ``noun`` is ``job`` or ``endpoint``. ``job_id`` holds the resource id
     for either.
     """

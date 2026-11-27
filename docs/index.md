@@ -19,19 +19,25 @@ Unofficial Python client for Nebius Serverless AI Jobs and Endpoints. Describe a
 
     ---
 
-    Install, then run a first job and a first endpoint.
+    Install, then run a first job, endpoint, image, task, and Prefect flow.
 
 -   :material-dumbbell: **[Training](training/index.md)**
 
     ---
 
-    Fine-tune models with Axolotl, one job or a parallel sweep.
+    Fine-tune with Axolotl, or run a pipeline of tasks.
 
 -   :material-lightning-bolt-outline: **[Inference](inference/index.md)**
 
     ---
 
     Serve a model behind an OpenAI-compatible API.
+
+-   :material-connection: **[Integrations](integrations/index.md)**
+
+    ---
+
+    Run tasks from an orchestrator: Prefect.
 
 -   :material-book-open-variant: **[Guides](guides/index.md)**
 

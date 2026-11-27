@@ -71,14 +71,21 @@ nav:
       - Install and authenticate: quickstarts/install.md
       - First job: quickstarts/first-job.md
       - First endpoint: quickstarts/first-endpoint.md
+      - First image: quickstarts/first-image.md
+      - First task: quickstarts/first-task.md
+      - First Prefect flow: quickstarts/first-flow.md
       - Notebooks: quickstarts/notebooks.md
   - 🏋️ Training:
       - training/index.md
       - Fine-tune with Axolotl: training/axolotl-finetune.md
       - Parallel fine-tuning sweep: training/axolotl-sweep.md
+      - Pipeline of tasks: training/task-pipeline.md
   - ⚡ Inference:
       - inference/index.md
       - Serve a model with vLLM: inference/vllm-endpoint.md
+  - 🔌 Integrations:
+      - integrations/index.md
+      - Prefect: integrations/prefect.md
   - 📖 Guides:
       - guides/index.md
       - Choose a machine and pricing: guides/machines.md
@@ -94,6 +101,8 @@ nav:
       - reference/index.md
       - Jobs: reference/jobs.md
       - Endpoints: reference/endpoints.md
+      - Images: reference/images.md
+      - Tasks: reference/tasks.md
       - Session and auth: reference/session.md
       - CLI and API map: reference/cli-api-map.md
       - Errors: reference/errors.md

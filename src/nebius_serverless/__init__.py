@@ -15,30 +15,38 @@ from .endpoint import Endpoint, endpoints
 from .endpoint_spec import EndpointSpec
 from .errors import (
     AccessError,
+    BuildFailed,
     CapacityError,
     Error,
     KeyConflict,
     SubmissionUncertain,
+    TaskFailed,
     TransportError,
     UnsupportedFeature,
     ValidationError,
     WaitTimeout,
 )
+from .image import Image
 from .job import Job, jobs
 from .job_spec import JobSpec
 from .log import configure_logging, diagnostics
 from .session import close, configure
+from .task import Task
 
 __all__ = [
     "AccessError",
+    "BuildFailed",
     "CapacityError",
     "Endpoint",
     "EndpointSpec",
     "Error",
+    "Image",
     "Job",
     "JobSpec",
     "KeyConflict",
     "SubmissionUncertain",
+    "Task",
+    "TaskFailed",
     "TransportError",
     "UnsupportedFeature",
     "ValidationError",

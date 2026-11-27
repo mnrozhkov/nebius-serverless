@@ -166,6 +166,54 @@ class WaitTimeout(Error):
     _recovery = _WAIT_RECOVERY
 
 
+class BuildFailed(Error):
+    """An image build job ended in a state other than ``COMPLETED``.
+
+    ``resource_id`` is the build job id and ``state`` its final state.
+    """
+
+    code = "build_failed"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        state: str | None = None,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(message, **kwargs)  # type: ignore[arg-type]
+        self.state = state
+
+
+class TaskFailed(Error):
+    """A task's job, function or script failed.
+
+    ``resource_id`` is the job id and ``state`` its final state.
+    ``remote_traceback`` is the traceback from the job when a function
+    raised. For a shell task, ``exit_code`` is the script's exit code
+    and ``outputs`` holds what it had set in ``outputs`` before it
+    stopped.
+    """
+
+    code = "task_failed"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        state: str | None = None,
+        remote_traceback: str | None = None,
+        exit_code: int | None = None,
+        outputs: dict[str, str] | None = None,
+        **kwargs: object,
+    ) -> None:
+        super().__init__(message, **kwargs)  # type: ignore[arg-type]
+        self.state = state
+        self.remote_traceback = remote_traceback
+        self.exit_code = exit_code
+        self.outputs = dict(outputs or {})
+
+
 def recovery_for(code: str, noun: str) -> str | None:
     """Recovery text that names ``noun``. ``None`` keeps the default.
 
