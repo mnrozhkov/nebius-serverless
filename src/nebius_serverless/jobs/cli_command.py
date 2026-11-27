@@ -14,7 +14,7 @@ def job_command(
     after_image = 1 + next(
         i for i, (flag, _value) in enumerate(flags) if flag == "--image"
     )
-    timeout = duration(spec.timeout_seconds)  # type: ignore[attr-defined]
+    timeout = duration(spec.timeout)  # type: ignore[attr-defined]
     flags.insert(after_image, ("--timeout", timeout))
     notes: list[str] = []
     restarts = spec.restart_attempts  # type: ignore[attr-defined]

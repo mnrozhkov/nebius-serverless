@@ -311,13 +311,13 @@ def _done(state: str) -> bool:
     return state == "COMPLETED"
 
 
-def console_url(project: str, job_id: str) -> str | None:
+def console_url(project: str, job_id: str | None) -> str | None:
     """The web console address of a job, when a template is set.
 
     The template is read from ``NS_CONSOLE_JOB_URL``. It may contain
-    ``{project}`` and ``{job}``.
+    ``{project}`` and ``{job}``. ``None`` without a template or a job.
     """
     template = os.environ.get(CONSOLE_ENV)
-    if not template:
+    if not template or not job_id:
         return None
     return template.replace("{project}", project).replace("{job}", job_id)

@@ -73,8 +73,8 @@ def _job(**kwargs: object) -> ns.JobSpec:
         "env": {"TOKEN": SECRET},
     }
     fields.update(kwargs)
-    command = fields.pop("command", ["nvidia-smi"])
-    return ns.JobSpec(command, **fields)  # type: ignore[arg-type]
+    fields.setdefault("command", ["nvidia-smi"])
+    return ns.JobSpec(**fields)  # type: ignore[arg-type]
 
 
 def _create(
@@ -83,7 +83,7 @@ def _create(
     quiet: bool = False,
     **kwargs: object,
 ) -> ns.Job:
-    created = _job(**kwargs).create(
+    created = ns.Job(_job(**kwargs)).create(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -174,8 +174,7 @@ def test_dry_run_stays_silent(
         return original(*args, **kwargs)
 
     monkeypatch.setattr(rich_console, "Console", capture)
-    described = _job().create(
-        dry_run=True,
+    described = ns.Job(_job()).dry_run(
         region="eu-north1",
         project="project-1",
     )
@@ -252,10 +251,10 @@ def test_quiet_on_each_async_call(
 ) -> None:
     fake = FakeTransport()
     fake.states = ["COMPLETED"]
-    job = _job()
+    spec = _job()
 
     async def follow() -> None:
-        created = await job.create_async(
+        created = await ns.Job(spec).create_async(
             region="eu-north1",
             project="project-1",
             transport=fake,
@@ -276,7 +275,7 @@ def test_quiet_on_each_async_call(
     assert capsys.readouterr().err == ""
 
     async def loud() -> None:
-        await job.create_async(
+        await ns.Job(spec).create_async(
             region="eu-north1",
             project="project-1",
             transport=fake,
@@ -1000,14 +999,14 @@ states = {
 fake = Fake(states)
 if mode == "debug":
     ns.configure_logging(level="DEBUG")
-job = ns.JobSpec(
-    ["nvidia-smi"],
+spec = ns.JobSpec(
+    command=["nvidia-smi"],
     image="python:3.12-slim",
     gpu="h100",
     timeout="1h",
     name="my-job",
 )
-run = job.create(
+run = ns.Job(spec).create(
     region="eu-north1",
     project="project-1",
     transport=fake,

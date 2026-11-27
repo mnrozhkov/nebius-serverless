@@ -17,7 +17,7 @@ GIB = 1024**3
 
 def _job(**kwargs: object) -> ns.JobSpec:
     return ns.JobSpec(
-        ["nvidia-smi"],
+        command=["nvidia-smi"],
         image="nvidia/cuda:13.1.1-runtime-ubuntu24.04",
         timeout="1h",
         **kwargs,  # type: ignore[arg-type]
@@ -33,12 +33,12 @@ def _endpoint(**kwargs: object) -> ns.EndpointSpec:
 
 
 CASES = [
-    (_job, FakeTransport, build_create_request),
-    (_endpoint, FakeEndpointTransport, build_endpoint_request),
+    (_job, ns.Job, FakeTransport, build_create_request),
+    (_endpoint, ns.Endpoint, FakeEndpointTransport, build_endpoint_request),
 ]
 
 
-@pytest.mark.parametrize(("build", "fake_type", "to_proto"), CASES)
+@pytest.mark.parametrize(("build", "handle", "fake_type", "to_proto"), CASES)
 @pytest.mark.parametrize(
     ("kwargs", "label", "sent"),
     [
@@ -51,6 +51,7 @@ CASES = [
 )
 def test_shm_default_and_override(
     build: object,
+    handle: type,
     fake_type: type,
     to_proto: object,
     kwargs: dict[str, object],
@@ -58,10 +59,10 @@ def test_shm_default_and_override(
     sent: int | None,
 ) -> None:
     recipe = build(**kwargs)  # type: ignore[operator]
-    described = recipe.create(dry_run=True, **WHERE)
+    described = handle(recipe).dry_run(**WHERE)
     assert described.get("shm") == label
     fake = fake_type()
-    recipe.create(transport=fake, quiet=True, **WHERE)
+    handle(recipe).create(transport=fake, quiet=True, **WHERE)
     body = fake.bodies[0]
     assert body["spec"].get("shm_size_bytes") == sent
     proto = to_proto(body).spec  # type: ignore[operator]

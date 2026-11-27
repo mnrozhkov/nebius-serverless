@@ -61,7 +61,7 @@ def _endpoint(fake: FakeEndpointTransport, **kwargs: object) -> ns.Endpoint:
         port=8000,
         **kwargs,  # type: ignore[arg-type]
     )
-    return spec.create(transport=fake, quiet=True, **WHERE)
+    return ns.Endpoint(spec).create(transport=fake, quiet=True, **WHERE)
 
 
 def test_waits_until_the_app_answers(

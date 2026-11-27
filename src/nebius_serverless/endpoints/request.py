@@ -1,24 +1,38 @@
-"""Validate an endpoint recipe and map it to a create request."""
+"""Validate endpoint fields and map an ``EndpointSpec`` to a request.
 
+``plan`` resolves where the endpoint goes and on what machine.
+``spec_description`` and ``spec_body`` then build the dry-run form and
+the create request. None of this creates anything.
+"""
+
+import hashlib
 import re
 import secrets
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
+from ..core.machines import Machine, resolve_machine
+from ..core.profile import resolve_location
 from ..core.recipe import (
     DISK_DEFAULT,
     SHM_LABEL,
     describe_extras,
     disk_bytes,
+    load_inject_files,
     machine_fields,
     parse_volume,
     quoted_args,
+    resolve_shm,
     secret_ref,
     spec_extras,
     validate_command,
     validate_secret_ref,
 )
-from ..errors import ValidationError
+from ..errors import UnsupportedFeature, ValidationError
+
+if TYPE_CHECKING:
+    from .spec import EndpointSpec
 
 AUTH_MODES = ("none", "token")
 TOKEN_GENERATED = "generated"
@@ -362,3 +376,106 @@ def endpoint_request_body(
         "metadata": {"parent_id": project, "name": name},
         "spec": spec,
     }
+
+
+@dataclass(frozen=True)
+class Plan:
+    """Where one create goes and on what machine."""
+
+    project: str
+    region: str
+    machine: Machine
+    shm: str | None
+
+
+def plan(
+    spec: "EndpointSpec", *, region: str | None, project: str | None
+) -> Plan:
+    """Resolve the project, region, machine and shm for ``spec``."""
+    project_id, region_id = resolve_location(
+        profile=spec.profile,
+        project=project if project is not None else spec.project,
+        region=region,
+    )
+    machine = resolve_machine(spec.gpu, spec.cpu, spec.platform, spec.preset)
+    if spec.pricing == "spot" and machine.cpu:
+        raise UnsupportedFeature(
+            "Spot pricing is not supported on CPU.",
+            operation="create",
+        )
+    return Plan(
+        project=project_id,
+        region=region_id,
+        machine=machine,
+        shm=resolve_shm(spec.shm, cpu=machine.cpu),
+    )
+
+
+def spec_description(
+    spec: "EndpointSpec", where: Plan, name: str
+) -> dict[str, object]:
+    """The dry-run description. Env values and the token are left out."""
+    machine = where.machine
+    return describe_endpoint(
+        command=spec.command,
+        image=spec.image,
+        ports=spec._port_specs(),
+        project=where.project,
+        region=where.region,
+        platform=machine.platform,
+        preset=machine.preset,
+        gpu=machine.gpu,
+        cpu=machine.cpu_selector,
+        pricing=spec.pricing,
+        auth=spec.auth,
+        token_supplied=spec.token is not None,
+        subnet_id=spec.subnet_id,
+        volumes=spec.volumes,
+        inject_files=spec.inject_files,
+        env_keys=list(spec.env),
+        name=name,
+        disk=spec.disk,
+        shm=where.shm,
+        token_secret=spec.token_secret,
+        working_dir=spec.working_dir,
+        secrets=tuple(spec.secrets.items()),
+        registry_secret=spec.registry_secret,
+        spot_policy=spec.spot_policy,
+    )
+
+
+def spec_body(
+    spec: "EndpointSpec", where: Plan, name: str, token: str | None
+) -> dict[str, object]:
+    """The create request. Reads the inject files; carries ``token``."""
+    machine = where.machine
+    return endpoint_request_body(
+        command=spec.command,
+        image=spec.image,
+        ports=spec._port_specs(),
+        project=where.project,
+        platform=machine.platform,
+        preset=machine.preset,
+        gpu=machine.gpu,
+        cpu=machine.cpu_selector,
+        pricing=spec.pricing,
+        token=token,
+        subnet_id=spec.subnet_id,
+        volumes=spec.volumes,
+        inject_files=load_inject_files(spec.inject_files),
+        env=tuple(spec.env.items()),
+        name=name,
+        disk=spec.disk,
+        shm=where.shm,
+        token_secret=spec.token_secret,
+        working_dir=spec.working_dir,
+        secrets=tuple(spec.secrets.items()),
+        registry_secret=spec.registry_secret,
+        spot_policy=spec.spot_policy,
+    )
+
+
+def name_from_key(key: str) -> str:
+    """The default name: one key, one name, so a same-key retry sends an
+    identical body; a fresh key per create gives a fresh name."""
+    return "endpoint-" + hashlib.sha256(key.encode()).hexdigest()[:12]

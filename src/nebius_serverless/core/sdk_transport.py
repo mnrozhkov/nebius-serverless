@@ -100,6 +100,13 @@ class SdkTransport(_SdkSession):
             )
         return _result_when_id_known(operation)
 
+    def dry_run(self, body: Mapping[str, object]) -> CreateResult:
+        """Send the create with ``dry_run``: Nebius validates it and
+        creates nothing."""
+        return _dry_run(
+            self._client(), build_create_request(body, dry_run=True)
+        )
+
     def get(self, job_id: str) -> dict[str, object]:
         """Fetch one job and return its JSON object."""
         try:
@@ -207,6 +214,13 @@ class SdkEndpointTransport(_SdkSession):
                 request_id=exposed_request_id(exc),
             )
         return _result_when_id_known(operation)
+
+    def dry_run(self, body: Mapping[str, object]) -> CreateResult:
+        """Send the create with ``dry_run``: Nebius validates it and
+        creates nothing."""
+        return _dry_run(
+            self._client(), build_endpoint_request(body, dry_run=True)
+        )
 
     def get(self, endpoint_id: str) -> dict[str, object]:
         """Fetch one endpoint and return its JSON, without the token."""
@@ -511,8 +525,13 @@ def _raise_project(exc: object, project_id: str) -> None:
     ) from None
 
 
-def build_create_request(body: Mapping[str, object]) -> object:
-    """Turn the mapped body into ``CreateJobRequest``."""
+def build_create_request(
+    body: Mapping[str, object], *, dry_run: bool = False
+) -> object:
+    """Turn the mapped body into ``CreateJobRequest``.
+
+    ``dry_run=True`` asks Nebius to validate it and create nothing.
+    """
     from nebius.api.nebius.ai.v1 import CreateJobRequest, JobSpec
     from nebius.api.nebius.common.v1 import ResourceMetadata
     from nebius.api.nebius.compute.v1 import DiskSpec as ComputeDisk
@@ -572,11 +591,17 @@ def build_create_request(body: Mapping[str, object]) -> object:
             name=str(metadata["name"]),
         ),
         spec=JobSpec(**spec_kwargs),
+        dry_run=dry_run,
     )
 
 
-def build_endpoint_request(body: Mapping[str, object]) -> object:
-    """Turn the mapped endpoint body into ``CreateEndpointRequest``."""
+def build_endpoint_request(
+    body: Mapping[str, object], *, dry_run: bool = False
+) -> object:
+    """Turn the mapped endpoint body into ``CreateEndpointRequest``.
+
+    ``dry_run=True`` asks Nebius to validate it and create nothing.
+    """
     from nebius.api.nebius.ai.v1 import CreateEndpointRequest, EndpointSpec
     from nebius.api.nebius.common.v1 import ResourceMetadata
     from nebius.api.nebius.compute.v1 import DiskSpec as ComputeDisk
@@ -655,6 +680,7 @@ def build_endpoint_request(body: Mapping[str, object]) -> object:
             name=str(metadata["name"]),
         ),
         spec=EndpointSpec(**spec_kwargs),
+        dry_run=dry_run,
     )
 
 
@@ -893,6 +919,28 @@ def _raise_call(
         **ids,
         recovery=recovery_for(TransportError.code, noun),
     ) from None
+
+
+def _dry_run(client: object, request: object) -> CreateResult:
+    """One create call with ``dry_run`` set. Not retried."""
+    try:
+        from nebius.aio.service_error import RequestError
+    except ImportError:
+        raise TransportError(
+            "The Nebius SDK is required for a server dry run.",
+            operation="dry_run",
+        ) from None
+    try:
+        operation = client.create(request).wait()  # type: ignore[attr-defined]
+    except RequestError as exc:
+        return _from_request(exc, sent=False)
+    except Exception as exc:
+        return CreateResult(
+            accepted=False,
+            failure="transport",
+            request_id=exposed_request_id(exc),
+        )
+    return CreateResult(accepted=True, resource_id=_resource_id(operation))
 
 
 def _result_when_id_known(operation: object) -> CreateResult:

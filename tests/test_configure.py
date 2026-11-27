@@ -58,7 +58,7 @@ def made(
 
 
 def _spec() -> ns.JobSpec:
-    return ns.JobSpec(["true"], image="busybox:1.37", timeout="10m")
+    return ns.JobSpec(command=["true"], image="busybox:1.37", timeout="10m")
 
 
 def test_an_env_token_works_without_a_cli_config(
@@ -67,7 +67,7 @@ def test_an_env_token_works_without_a_cli_config(
     from nebius.aio.token.static import EnvBearer
 
     monkeypatch.setenv("NEBIUS_IAM_TOKEN", TOKEN)
-    described = _spec().create(dry_run=True, project="project-test-0001")
+    described = ns.Job(_spec()).dry_run(project="project-test-0001")
     assert described["region"] == "eu-north1"
     assert len(made) == 1
     assert isinstance(made[0].kwargs["credentials"], EnvBearer)
@@ -80,10 +80,10 @@ def test_without_a_profile_the_project_must_be_given(
 ) -> None:
     monkeypatch.setenv("NEBIUS_IAM_TOKEN", TOKEN)
     with pytest.raises(ns.ValidationError, match="configure") as caught:
-        _spec().create(dry_run=True)
+        ns.Job(_spec()).dry_run()
     assert TOKEN not in str(caught.value)
     ns.configure(project="project-test-0001", region="eu-west1")
-    described = _spec().create(dry_run=True)
+    described = ns.Job(_spec()).dry_run()
     assert (described["project"], described["region"]) == (
         "project-test-0001",
         "eu-west1",

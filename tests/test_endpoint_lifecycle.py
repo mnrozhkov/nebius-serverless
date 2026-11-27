@@ -25,7 +25,7 @@ def _clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
 
 def _endpoint(fake: FakeEndpointTransport) -> ns.Endpoint:
     spec = ns.EndpointSpec(image="vllm/vllm-openai:v0.19.1", port=8000)
-    return spec.create(transport=fake, quiet=True, **WHERE)
+    return ns.Endpoint(spec).create(transport=fake, quiet=True, **WHERE)
 
 
 def test_stop_then_start_round_trip() -> None:
@@ -97,8 +97,8 @@ def test_deleting_ends_both_waits_as_data() -> None:
 
     jobs = FakeTransport()
     jobs.states = ["RUNNING", "DELETING"]
-    spec = ns.JobSpec(["true"], image="busybox:1.37", timeout="1h")
-    job = spec.create(transport=jobs, quiet=True, **WHERE)
+    spec = ns.JobSpec(command=["true"], image="busybox:1.37", timeout="1h")
+    job = ns.Job(spec).create(transport=jobs, quiet=True, **WHERE)
     assert job.wait(quiet=True)["status"]["state"] == "DELETING"
 
 

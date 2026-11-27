@@ -1,4 +1,4 @@
-"""spec.to_cli() prints the CLI command that matches what create() sends."""
+"""to_cli() prints the CLI command that matches what create() sends."""
 
 import re
 import shlex
@@ -73,9 +73,10 @@ def test_job_command_matches_the_create_body(
     kwargs: dict[str, object],
 ) -> None:
     spec = ns.JobSpec(image="busybox:1.37", name="fixed", **kwargs)  # type: ignore[arg-type]
-    pairs = _parse(spec.to_cli(project="project-test-0001"))
+    job = ns.Job(spec)
+    pairs = _parse(job.to_cli(project="project-test-0001"))
     fake = FakeTransport()
-    spec.create(transport=fake, quiet=True, **WHERE)
+    job.create(transport=fake, quiet=True, **WHERE)
     body = fake.bodies[0]
     sent = body["spec"]
     assert isinstance(sent, dict)
@@ -117,11 +118,11 @@ def test_job_command_matches_the_create_body(
 
 def test_no_secret_value_is_printed() -> None:
     spec = ns.JobSpec(
-        ["true"], image="a:b", timeout="1h", env={"PLAIN": SECRET}
+        command=["true"], image="a:b", timeout="1h", env={"PLAIN": SECRET}
     )
-    assert SECRET not in spec.to_cli()
+    assert SECRET not in ns.Job(spec).to_cli()
     endpoint = ns.EndpointSpec(image="a:b", port=8000, token=TOKEN)
-    text = endpoint.to_cli()
+    text = ns.Endpoint(endpoint).to_cli()
     assert TOKEN not in text
     assert "--auth token" in text
     assert "# token= is not printed" in text
@@ -135,9 +136,10 @@ def test_endpoint_command() -> None:
         gpu="h100",
         name="fixed",
     )
-    pairs = _parse(spec.to_cli())
+    endpoint = ns.Endpoint(spec)
+    pairs = _parse(endpoint.to_cli())
     fake = FakeEndpointTransport()
-    spec.create(transport=fake, quiet=True, **WHERE)
+    endpoint.create(transport=fake, quiet=True, **WHERE)
     sent = fake.bodies[0]["spec"]
     assert isinstance(sent, dict)
     assert _values(pairs, "--container-port") == [
@@ -150,12 +152,15 @@ def test_endpoint_command() -> None:
     assert _values(pairs, "--gpu") == sent["gpu"]
     assert "--parent-id" not in [f for f, _ in pairs]
     secret = ns.EndpointSpec(image="a:b", port=8000, token_secret="mbsec-t")
-    assert _values(_parse(secret.to_cli()), "--token-secret") == ["mbsec-t"]
+    printed = ns.Endpoint(secret).to_cli()
+    assert _values(_parse(printed), "--token-secret") == ["mbsec-t"]
 
 
 def test_a_restart_count_the_cli_cannot_say_is_noted() -> None:
-    spec = ns.JobSpec(["true"], image="a:b", timeout="1h", restart_attempts=3)
-    text = spec.to_cli()
+    spec = ns.JobSpec(
+        command=["true"], image="a:b", timeout="1h", restart_attempts=3
+    )
+    text = ns.Job(spec).to_cli()
     command, _, notes = text.partition("\n#")
     assert "--restart-policy" not in command
     assert "restart_attempts=3 has no CLI flag" in notes

@@ -29,7 +29,8 @@ def _job(**kwargs: object) -> ns.JobSpec:
         "timeout": "1h",
     }
     fields.update(kwargs)
-    return ns.JobSpec(["nvidia-smi"], **fields)  # type: ignore[arg-type]
+    fields.setdefault("command", ["nvidia-smi"])
+    return ns.JobSpec(**fields)  # type: ignore[arg-type]
 
 
 def _endpoint(**kwargs: object) -> ns.EndpointSpec:
@@ -88,7 +89,7 @@ def test_restart_attempts_map_to_the_api_field(
     value: int, sent: int | None
 ) -> None:
     fake = FakeTransport()
-    _job(restart_attempts=value).create(
+    ns.Job(_job(restart_attempts=value)).create(
         region="eu-north1", project="p", transport=fake
     )
     assert _spec(fake.bodies[0]).get("restart_attempts") == sent
@@ -162,7 +163,9 @@ def test_token_secret_rules() -> None:
 
 def test_job_body_carries_the_new_fields() -> None:
     fake = FakeTransport()
-    _full_job().create(region="eu-north1", project="p", transport=fake)
+    ns.Job(_full_job()).create(
+        region="eu-north1", project="p", transport=fake
+    )
     spec = _spec(fake.bodies[0])
     assert spec["restart_attempts"] == 3
     assert spec["working_dir"] == "/workspace"
@@ -184,8 +187,8 @@ def test_job_body_carries_the_new_fields() -> None:
 
 def test_job_defaults_leave_the_new_fields_out() -> None:
     fake = FakeTransport()
-    job = _job()
-    job.create(region="eu-north1", project="p", transport=fake)
+    recipe = _job()
+    ns.Job(recipe).create(region="eu-north1", project="p", transport=fake)
     spec = _spec(fake.bodies[0])
     for key in (
         "restart_attempts",
@@ -195,7 +198,7 @@ def test_job_defaults_leave_the_new_fields_out() -> None:
         "spot_pricing_policy",
     ):
         assert key not in spec
-    described = job.create(dry_run=True, region="eu-north1", project="p")
+    described = ns.Job(recipe).dry_run(region="eu-north1", project="p")
     assert isinstance(described, dict)
     for key in (
         "restart_attempts",
@@ -208,9 +211,7 @@ def test_job_defaults_leave_the_new_fields_out() -> None:
 
 
 def test_job_dry_run_shows_secret_ids_not_values() -> None:
-    described = _full_job().create(
-        dry_run=True, region="eu-north1", project="p"
-    )
+    described = ns.Job(_full_job()).dry_run(region="eu-north1", project="p")
     assert isinstance(described, dict)
     assert described["restart_attempts"] == 3
     assert described["working_dir"] == "/workspace"
@@ -226,7 +227,9 @@ def test_job_dry_run_shows_secret_ids_not_values() -> None:
 
 def test_build_create_request_maps_the_new_fields() -> None:
     fake = FakeTransport()
-    _full_job().create(region="eu-north1", project="p", transport=fake)
+    ns.Job(_full_job()).create(
+        region="eu-north1", project="p", transport=fake
+    )
     spec = build_create_request(fake.bodies[0]).spec
     assert spec.restart_attempts == 3
     assert spec.working_dir == "/workspace"
@@ -252,7 +255,7 @@ def test_build_create_request_maps_the_new_fields() -> None:
 
 def test_endpoint_body_uses_the_token_secret() -> None:
     fake = FakeEndpointTransport()
-    service = _full_endpoint().create(
+    service = ns.Endpoint(_full_endpoint()).create(
         region="eu-north1", project="p", transport=fake
     )
     assert isinstance(service, ns.Endpoint)
@@ -273,8 +276,8 @@ def test_endpoint_body_uses_the_token_secret() -> None:
 
 
 def test_endpoint_dry_run_names_the_token_secret() -> None:
-    described = _full_endpoint().create(
-        dry_run=True, region="eu-north1", project="p"
+    described = ns.Endpoint(_full_endpoint()).dry_run(
+        region="eu-north1", project="p"
     )
     assert isinstance(described, dict)
     assert described["token"] == "secret"
@@ -287,7 +290,9 @@ def test_endpoint_dry_run_names_the_token_secret() -> None:
 
 def test_build_endpoint_request_maps_the_new_fields() -> None:
     fake = FakeEndpointTransport()
-    _full_endpoint().create(region="eu-north1", project="p", transport=fake)
+    ns.Endpoint(_full_endpoint()).create(
+        region="eu-north1", project="p", transport=fake
+    )
     spec = build_endpoint_request(fake.bodies[0]).spec
     assert spec.auth_token == ""
     assert spec.auth_token_mysterybox_secret.secret_id == TOKEN_SECRET
@@ -301,7 +306,7 @@ def test_build_endpoint_request_maps_the_new_fields() -> None:
 
 def test_plain_spot_still_follows_the_spot_price() -> None:
     fake = FakeEndpointTransport()
-    _endpoint(pricing="spot").create(
+    ns.Endpoint(_endpoint(pricing="spot")).create(
         region="eu-north1", project="p", transport=fake
     )
     spec = build_endpoint_request(fake.bodies[0]).spec
@@ -336,10 +341,10 @@ def test_job_yaml_accepts_the_new_keys(tmp_path: Path) -> None:
     job = ns.JobSpec.from_yaml(path)
     assert job.restart_attempts == 3
     assert job.working_dir == "/workspace"
-    assert job.secrets == (
+    assert list(job.secrets.items()) == [
         ("HF_TOKEN", HF_SECRET),
         ("WANDB_API_KEY", WANDB_VERSION),
-    )
+    ]
     assert job.registry_secret == REGISTRY
     assert job.spot_policy == POLICY
 
@@ -364,7 +369,7 @@ def test_endpoint_yaml_accepts_the_new_keys(tmp_path: Path) -> None:
     endpoint = ns.EndpointSpec.from_yaml(path)
     assert endpoint.token_secret == TOKEN_SECRET
     assert endpoint.working_dir == "/srv"
-    assert endpoint.secrets == (("HF_TOKEN", HF_SECRET),)
+    assert endpoint.secrets == {"HF_TOKEN": HF_SECRET}
     assert endpoint.registry_secret == REGISTRY
     assert endpoint.spot_policy == POLICY
 
@@ -386,7 +391,7 @@ def test_job_yaml_rejects_endpoint_only_keys(tmp_path: Path) -> None:
 
 def test_unlimited_restarts_reach_the_api_request() -> None:
     fake = FakeTransport()
-    _job(restart_attempts=-1).create(
+    ns.Job(_job(restart_attempts=-1)).create(
         region="eu-north1", project="p", transport=fake
     )
     assert build_create_request(fake.bodies[0]).spec.restart_attempts == -1

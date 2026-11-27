@@ -356,7 +356,7 @@ class Task:
         ]
         with _staged(files) as staged:
             spec = JobSpec(
-                command,
+                command=command,
                 image=image,
                 name=job_name,
                 volumes=volumes,
@@ -366,15 +366,13 @@ class Task:
                 ],
                 **options,
             )
-            job = spec._create(
-                dry_run=False,
+            job = Job(spec)._create(
                 region=region,
                 project=project,
                 transport=submit.job_transport(),
                 progress=progress,
                 idempotency_key=None,
             )
-        assert isinstance(job, Job)
         return TaskRun(
             task=self.name,
             name=run_name,

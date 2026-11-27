@@ -5,7 +5,7 @@ category, not a backend reason code. ``request_id`` is set only when
 the Nebius exception already exposes one.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 _DEFAULT_RECOVERY = (
     "If you have a job id, reload it with jobs.get. "
@@ -83,9 +83,24 @@ class Error(Exception):
 
 
 class ValidationError(Error):
-    """The call was rejected before Nebius was contacted."""
+    """The call was rejected before Nebius was contacted.
+
+    ``details`` lists each problem for tools, as dicts with ``loc``
+    (the field path), ``msg`` and ``type``. It never holds the values
+    that were passed.
+    """
 
     code = "validation"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: Iterable[Mapping[str, object]] = (),
+        **kwargs: object,
+    ) -> None:
+        super().__init__(message, **kwargs)  # type: ignore[arg-type]
+        self.details = [dict(item) for item in details]
 
 
 class UnsupportedFeature(ValidationError):

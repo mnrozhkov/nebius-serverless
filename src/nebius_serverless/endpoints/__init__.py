@@ -1,4 +1,4 @@
-"""Endpoints: the recipe, the cloud endpoint, and lookup by id.
+"""Endpoints: the spec, the endpoint, and lookup by id.
 
 ``ns.endpoints.get(id)`` reloads an endpoint from a saved id.
 ``ns.EndpointSpec`` and ``ns.Endpoint`` are the supported names; the
@@ -116,7 +116,7 @@ def _get(
         ),
         progress,
     )
-    return Endpoint(
+    return Endpoint._attach(
         endpoint_id,
         name=record_name(record),
         transport=chosen,

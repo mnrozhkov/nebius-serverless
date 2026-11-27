@@ -6,7 +6,7 @@ from pathlib import Path
 from ..core.yaml_loader import load_document
 from ..errors import UnsupportedFeature, ValidationError
 
-_ALLOWED = frozenset(
+ALLOWED = frozenset(
     {
         "schema_version",
         "kind",
@@ -24,6 +24,7 @@ _ALLOWED = frozenset(
         "name",
         "disk",
         "restart_attempts",
+        "preemption_retries",
         "working_dir",
         "secrets",
         "registry_secret",
@@ -48,7 +49,7 @@ def _fields(document: Mapping[object, object]) -> dict[str, object]:
         or document.get("execution") == "function"
     ):
         raise UnsupportedFeature(
-            "Function YAML is not supported. Use JobSpec.create().",
+            "Function YAML is not supported. Use ns.Task for a function.",
             operation="from_yaml",
         )
     if document.get("kind") == "endpoint":
@@ -57,7 +58,7 @@ def _fields(document: Mapping[object, object]) -> dict[str, object]:
             operation="from_yaml",
         )
     unknown = sorted(
-        str(key) for key in document if key not in _ALLOWED
+        str(key) for key in document if key not in ALLOWED
     )
     if unknown:
         names = ", ".join(unknown)
@@ -92,6 +93,7 @@ def _fields(document: Mapping[object, object]) -> dict[str, object]:
         "name",
         "disk",
         "restart_attempts",
+        "preemption_retries",
         "working_dir",
         "secrets",
         "registry_secret",

@@ -1,6 +1,6 @@
-"""Run a job recipe loaded from YAML.
+"""Run a job spec loaded from YAML.
 
-``--config`` is the path to the YAML file. The recipe in that file is
+``--config`` is the path to the YAML file. The spec in that file is
 the whole configuration. Uses the active Nebius profile.
 """
 
@@ -19,7 +19,7 @@ def main() -> None:
     )
     config = parser.parse_args().config
     spec = ns.JobSpec.from_yaml(config)
-    job = spec.create()
+    job = ns.Job(spec).create()
     job.wait()
     job.display()
     if job.status != "COMPLETED":

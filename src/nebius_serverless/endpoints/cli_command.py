@@ -11,13 +11,14 @@ def endpoint_command(
 ) -> str:
     """The ``nebius ai endpoint create`` command for an ``EndpointSpec``."""
     flags = common_flags(spec, name=name, project=project)
-    for port in spec.ports:  # type: ignore[attr-defined]
-        flags.append(("--container-port", port))
+    for port in spec._port_specs():  # type: ignore[attr-defined]
+        flags.append(("--container-port", port.label()))
     flags.append(("--auth", spec.auth))  # type: ignore[attr-defined]
     notes: list[str] = []
     if spec.token_secret is not None:  # type: ignore[attr-defined]
         flags.append(("--token-secret", spec.token_secret))  # type: ignore[attr-defined]
     elif spec.token is not None:  # type: ignore[attr-defined]
+        # The value is never printed.
         notes.append(
             "token= is not printed: add --token yourself, or the CLI "
             "generates one."

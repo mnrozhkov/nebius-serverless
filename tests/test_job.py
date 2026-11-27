@@ -8,6 +8,7 @@ import pytest
 from fakes import FakeClock, FakeTransport
 
 import nebius_serverless as ns
+from nebius_serverless.jobs.job import Job
 from nebius_serverless.ui.output import _moment
 
 SECRET = "super-secret-value"
@@ -20,15 +21,15 @@ def _run(
 ) -> ns.Job:
     if states is not None:
         fake.states = states
-    job = ns.JobSpec(
-        ["nvidia-smi"],
+    spec = ns.JobSpec(
+        command=["nvidia-smi"],
         image="python:3.12-slim",
         gpu="h100",
         timeout="1h",
         name="my-job",
         env={"TOKEN": SECRET},
     )
-    created = job.create(
+    created = ns.Job(spec).create(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -195,7 +196,7 @@ def test_display_prints_the_fetched_record(
 ) -> None:
     monkeypatch.setenv("NO_COLOR", "1")  # type: ignore[attr-defined]
     fake = FakeTransport()
-    run = ns.Job(
+    run = Job._attach(
         "aijob-test-0001",
         name="job-4a4d828fdc4e",
         transport=fake,
@@ -232,7 +233,7 @@ def test_display_colors_a_terminal(
     stream = _TTY()
     patch(sys, "stdout", stream)
     fake = FakeTransport()
-    run = ns.Job(
+    run = Job._attach(
         "aijob-test-0001",
         name="job-4a4d828fdc4e",
         transport=fake,
@@ -247,7 +248,7 @@ def test_display_colors_a_terminal(
     failed["status"] = {"state": "FAILED"}
     stream.seek(0)
     stream.truncate()
-    ns.Job(
+    Job._attach(
         "aijob-test-0001",
         name="job-4a4d828fdc4e",
         transport=fake,

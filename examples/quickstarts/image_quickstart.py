@@ -25,12 +25,11 @@ def main() -> None:
     # Same Dockerfile, same tag: nothing is built.
     assert image.build() == ref
 
-    spec = ns.JobSpec(
+    job = ns.Job(
         ["python", "-c", "import requests; print(requests.__version__)"],
         image=ref,
         timeout="15m",
-    )
-    job = spec.create()
+    ).create()
     job.wait()
     job.display()
 

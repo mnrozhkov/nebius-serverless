@@ -9,43 +9,56 @@ from fakes import FakeTransport
 import nebius_serverless as ns
 
 
-def _job() -> ns.JobSpec:
+def _spec() -> ns.JobSpec:
     return ns.JobSpec(
-        ["nvidia-smi"],
+        command=["nvidia-smi"],
         image="python:3.12-slim",
         gpu="h100",
         timeout="1h",
     )
 
 
+def _job() -> ns.Job:
+    return ns.Job(_spec())
+
+
 def test_sync_call_inside_a_loop_names_the_twin() -> None:
     job = _job()
+    fake = FakeTransport()
 
     async def create() -> None:
-        job.create(dry_run=True, region="eu-north1", project="p")
+        job.create(region="eu-north1", project="p", transport=fake)
 
     with pytest.raises(ns.ValidationError, match="create_async"):
         asyncio.run(create())
+    assert fake.bodies == []
 
 
 def test_awaited_twins_match_the_sync_calls() -> None:
-    job = _job()
-    sync = job.create(dry_run=True, region="eu-north1", project="p")
+    spec = _spec()
+    sync_fake = FakeTransport()
+    awaited_fake = FakeTransport()
+    sync = ns.Job(spec).create(
+        region="eu-north1", project="p", transport=sync_fake
+    )
 
-    async def once() -> dict[str, object]:
-        described = await job.create_async(
-            dry_run=True,
+    async def once() -> ns.Job:
+        return await ns.Job(spec).create_async(
             region="eu-north1",
             project="p",
+            transport=awaited_fake,
         )
-        assert isinstance(described, dict)
-        return described
 
     awaited = asyncio.run(once())
-    # Each create, dry runs included, generates its own default name.
-    for described in (awaited, sync):
-        assert str(described.pop("name")).startswith("job-")
-    assert awaited == sync
+    assert isinstance(awaited, ns.Job)
+    assert (awaited.id, sync.id) == ("job-1", "job-1")
+    # Each create generates its own default name.
+    bodies = [awaited_fake.bodies[0], sync_fake.bodies[0]]
+    for body in bodies:
+        metadata = body["metadata"]
+        assert isinstance(metadata, dict)
+        assert str(metadata.pop("name")).startswith("job-")
+    assert bodies[0] == bodies[1]
 
 
 def test_async_get_wait_and_cancel() -> None:
@@ -115,12 +128,14 @@ kind = sys.argv[1]
 if kind == "job":
     fake = FakeTransport()
     fake.states = ["RUNNING"]
-    handle = ns.JobSpec(["x"], image="a:b", timeout="1h").create(
+    spec = ns.JobSpec(command=["x"], image="a:b", timeout="1h")
+    handle = ns.Job(spec).create(
         region="eu-north1", project="p", transport=fake, quiet=True)
 else:
     fake = FakeEndpointTransport()
     fake.states = ["PROVISIONING"]
-    handle = ns.EndpointSpec(image="a:b", port=80).create(
+    spec = ns.EndpointSpec(image="a:b", port=80)
+    handle = ns.Endpoint(spec).create(
         region="eu-north1", project="p", transport=fake, quiet=True)
 
 async def main():

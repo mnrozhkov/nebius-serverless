@@ -3,10 +3,11 @@
 Not an official Nebius product, and Nebius does not support it. The
 official Python SDK is https://github.com/nebius/pysdk.
 
-``JobSpec`` and ``EndpointSpec`` are local recipes. ``create()`` on one
-returns a ``Job`` or an ``Endpoint``: the cloud resource with that id.
-Constructing a recipe does not import the Nebius SDK. The SDK is
-imported on the call that resolves a profile or contacts Nebius.
+``JobSpec`` and ``EndpointSpec`` are data: what to run. They make no
+Nebius calls. ``ns.Job(spec).create()`` and ``ns.Endpoint(spec).create()``
+create the resource once. Constructing a spec or a handle does not
+import the Nebius SDK. The SDK is imported on the call that resolves a
+profile or contacts Nebius.
 
 Supported imports are the names in ``__all__``, plus
 ``nebius_serverless.errors``, ``nebius_serverless.tasks.driver`` for

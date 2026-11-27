@@ -29,12 +29,14 @@ Each recipe argument, the `nebius ai job create` / `nebius ai endpoint create` f
 | `working_dir=` | `--working-dir` | `working_dir` | Same, at most 128 characters. |
 | `registry_secret=` | `--registry-secret SELECTOR` | `registry_credentials.mysterybox_secret_version` | The SDK takes a version id only, because the API pins registry credentials to one version; the CLI resolves a name or secret id to a version. |
 | `restart_attempts=` (job) | `--restart-policy never\|on-failure` | `restart_attempts` | `0` is `never` and `-1` is `on-failure`; the SDK also takes a count. Not the CLI's global `--retries`, which counts API request retries. |
+| `preemption_retries=` (job) | n/a | n/a | Intended: `wait()` creates a preempted spot job again, up to this many times. The CLI has no such retry. |
 | `timeout=` (job) | `--timeout` | `timeout` | Same range, 5 minutes to 168 hours. Intended: required in the SDK, an explicit cost ceiling; the CLI defaults to 24 hours. |
 | n/a | `--public` | `public_ip` | Not exposed. The managed `https://` URL does not need it. |
 | n/a | `--ssh-key` | `ssh_authorized_keys` | Not exposed. |
 | n/a | `--registry-username`, `--registry-password` | `registry_credentials.username`, `.password` | Not exposed. Use `registry_secret`. |
-| `create(dry_run=True)` | `--dry-run` | n/a | The SDK builds the request locally and does not call create. The CLI describes its flag as "Validate the request without creating a resource". |
-| `create()` | `create` (`--async` returns early) | `Create` | The SDK returns once the id is known, not when the job or endpoint is ready. |
+| `dry_run()` | n/a | n/a | The SDK builds the request locally and does not call create. |
+| `dry_run(server=True)` | `--dry-run` | `dry_run` | Same: Nebius validates the request and creates nothing. The CLI describes its flag as "Validate the request without creating a resource". |
+| `create()` | `create` (`--async` returns early) | `Create` | The SDK returns once the id is known, not when the job or endpoint is ready. `ns.Job(spec).create()` and `ns.Endpoint(spec).create()` create once. |
 
 ## Commands
 

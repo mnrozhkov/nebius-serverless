@@ -23,8 +23,8 @@ def _job(**kwargs: object) -> ns.JobSpec:
         "env": {"TOKEN": SECRET},
     }
     fields.update(kwargs)
-    command = fields.pop("command", ["nvidia-smi"])
-    return ns.JobSpec(command, **fields)  # type: ignore[arg-type]
+    fields.setdefault("command", ["nvidia-smi"])
+    return ns.JobSpec(**fields)  # type: ignore[arg-type]
 
 
 def _spec(body: dict[str, object]) -> dict[str, object]:
@@ -35,8 +35,8 @@ def _spec(body: dict[str, object]) -> dict[str, object]:
 
 def test_nvidia_smi_body_and_a_second_create() -> None:
     fake = FakeTransport()
-    job = _job(name="my-job", command=["bash", "-c", "echo hello world"])
-    run = job.create(
+    recipe = _job(name="my-job", command=["bash", "-c", "echo hello world"])
+    run = ns.Job(recipe).create(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -59,7 +59,7 @@ def test_nvidia_smi_body_and_a_second_create() -> None:
     assert "follows_spot_price" not in spec
     metadata = fake.bodies[0]["metadata"]
     assert metadata == {"parent_id": "project-1", "name": "my-job"}
-    second = job.create(
+    second = ns.Job(recipe).create(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -71,9 +71,10 @@ def test_nvidia_smi_body_and_a_second_create() -> None:
 
 def test_spot_flags_and_dry_run_skips_create() -> None:
     fake = FakeTransport()
-    job = _job(pricing="spot", disk="500Gi", volumes=["data:/work:ro"])
-    described = job.create(
-        dry_run=True,
+    job = ns.Job(
+        _job(pricing="spot", disk="500Gi", volumes=["data:/work:ro"])
+    )
+    described = job.dry_run(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -106,8 +107,7 @@ def test_inject_files_read_on_create(tmp_path: Path) -> None:
     local.write_text("base_model: demo\n", encoding="utf-8")
     inject = f"{local}:/workspace/config.yaml"
     fake = FakeTransport()
-    described = _job(inject_files=[inject]).create(
-        dry_run=True,
+    described = ns.Job(_job(inject_files=[inject])).dry_run(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -116,7 +116,7 @@ def test_inject_files_read_on_create(tmp_path: Path) -> None:
     assert described["inject_files"] == [inject]
     assert fake.bodies == []
 
-    _job(inject_files=[inject], env={}).create(
+    ns.Job(_job(inject_files=[inject], env={})).create(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -136,8 +136,9 @@ def test_inject_files_read_on_create(tmp_path: Path) -> None:
 
     too_big = tmp_path / "big.bin"
     too_big.write_bytes(b"x" * (64 * 1024 + 1))
+    big = _job(inject_files=[f"{too_big}:/workspace/big.bin"], env={})
     with pytest.raises(ns.ValidationError, match="64 KiB"):
-        _job(inject_files=[f"{too_big}:/workspace/big.bin"], env={}).create(
+        ns.Job(big).create(
             region="eu-north1",
             project="project-1",
             transport=fake,
@@ -149,9 +150,9 @@ def test_a_lost_id_is_resent_with_one_key_a_definite_failure_is_not() -> (
 ):
     lost = FakeTransport()
     lost.drop_id = True
-    job = _job()
+    spec = _job()
     with pytest.raises(ns.SubmissionUncertain) as uncertain:
-        job.create(
+        ns.Job(spec).create(
             region="eu-north1",
             project="project-1",
             transport=lost,
@@ -163,7 +164,7 @@ def test_a_lost_id_is_resent_with_one_key_a_definite_failure_is_not() -> (
     failed = FakeTransport()
     failed.failure = "transport"
     with pytest.raises(ns.TransportError) as caught:
-        job.create(
+        ns.Job(spec).create(
             region="eu-north1",
             project="project-1",
             transport=failed,
@@ -191,7 +192,7 @@ def test_create_errors_hide_env_values(
     fake.failure = failure
     fake.conflict_id = conflict_id
     with pytest.raises(error) as caught:
-        _job().create(
+        ns.Job(_job()).create(
             region="eu-north1",
             project="project-1",
             transport=fake,
@@ -211,8 +212,7 @@ def test_explicit_location_skips_the_profile(
         raise AssertionError(profile)
 
     monkeypatch.setattr("nebius_serverless.core.profile.load_profile", boom)
-    described = _job().create(
-        dry_run=True,
+    described = ns.Job(_job()).dry_run(
         region="eu-north1",
         project="project-1",
     )
@@ -232,7 +232,7 @@ def test_missing_profile_fails_before_create(
     monkeypatch.setattr("nebius_serverless.core.profile.load_profile", missing)
     fake = FakeTransport()
     with pytest.raises(ns.ValidationError):
-        _job().create(transport=fake)
+        ns.Job(_job()).create(transport=fake)
     assert fake.bodies == []
 
 
@@ -313,7 +313,7 @@ def test_project_region_fills_a_global_profile(
         "nebius_serverless.core.sdk_transport.project_region",
         region,
     )
-    described = _job().create(dry_run=True)
+    described = ns.Job(_job()).dry_run()
     assert isinstance(described, dict)
     assert described["region"] == "eu-north1"
     assert described["project"] == "project-123"
@@ -338,7 +338,7 @@ def test_explicit_region_skips_the_project_lookup(
         "nebius_serverless.core.sdk_transport.project_region",
         region,
     )
-    described = _job().create(dry_run=True, region="eu-north1")
+    described = ns.Job(_job()).dry_run(region="eu-north1")
     assert isinstance(described, dict)
     assert described["region"] == "eu-north1"
 

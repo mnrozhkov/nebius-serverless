@@ -21,7 +21,8 @@ def _endpoint(
     )
     monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     spec = ns.EndpointSpec(image="vllm/vllm-openai:v0.19.1", port=8000)
-    return spec.create(transport=fake, quiet=True, **WHERE), clock
+    endpoint = ns.Endpoint(spec).create(transport=fake, quiet=True, **WHERE)
+    return endpoint, clock
 
 
 def test_default_wait_gives_up_after_an_hour(
@@ -108,8 +109,8 @@ def test_job_wait_accepts_a_duration_too(
     monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     fake = FakeTransport()
     fake.states = ["RUNNING"]
-    spec = ns.JobSpec(["true"], image="busybox:1.37", timeout="1h")
-    job = spec.create(transport=fake, quiet=True, **WHERE)
+    spec = ns.JobSpec(command=["true"], image="busybox:1.37", timeout="1h")
+    job = ns.Job(spec).create(transport=fake, quiet=True, **WHERE)
     with pytest.raises(ns.WaitTimeout):
         job.wait(timeout="1m30s", quiet=True)
     assert clock.now == 90

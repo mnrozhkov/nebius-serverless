@@ -1,6 +1,6 @@
 """The CLI flags shared by ``nebius ai job|endpoint create`` commands.
 
-``FLAGS`` maps each recipe argument to its CLI flag. The same table is
+``FLAGS`` maps each spec field to its CLI flag. The same table is
 checked against the CLI and API map in ``docs/reference.md``, so the
 printer and the docs cannot drift apart.
 
@@ -93,9 +93,9 @@ def common_flags(
         flags.append(("--volume", volume))
     for item in s.inject_files:  # type: ignore[attr-defined]
         flags.append(("--inject-file", item))
-    for key, _value in s.env:  # type: ignore[attr-defined]
+    for key in s.env:  # type: ignore[attr-defined]
         flags.append(("--env", f'{key}="${key}"'))
-    for key, ref in s.secrets:  # type: ignore[attr-defined]
+    for key, ref in s.secrets.items():  # type: ignore[attr-defined]
         flags.append(("--env-secret", f"{key}={ref}"))
     if s.working_dir is not None:  # type: ignore[attr-defined]
         flags.append(("--working-dir", s.working_dir))  # type: ignore[attr-defined]

@@ -30,14 +30,8 @@ def _load(path: Path) -> ModuleType:
     return module
 
 
-def _describe(job: ns.JobSpec) -> dict[str, object]:
-    described = job.create(
-        dry_run=True,
-        region=REGION,
-        project=PROJECT,
-    )
-    assert isinstance(described, dict)
-    return described
+def _describe(spec: ns.JobSpec) -> dict[str, object]:
+    return ns.Job(spec).dry_run(region=REGION, project=PROJECT)
 
 
 def _without_name(request: dict[str, object]) -> dict[str, object]:
@@ -75,7 +69,7 @@ def test_examples_pass_gpu_aliases() -> None:
 
 def test_nvidia_smi_matches_the_readme_and_the_yaml() -> None:
     job = ns.JobSpec(
-        ["nvidia-smi"],
+        command=["nvidia-smi"],
         image=CUDA,
         gpu="h100",
         timeout="1h",
@@ -99,7 +93,7 @@ def test_nvidia_smi_matches_the_readme_and_the_yaml() -> None:
 
 def test_axolotl_recipe() -> None:
     job = ns.JobSpec(
-        ["bash", "-lc", "axolotl train /workspace/data/config.yaml"],
+        command=["bash", "-lc", "axolotl train /workspace/data/config.yaml"],
         image=AXOLOTL,
         gpu="h100",
         pricing="spot",
@@ -155,7 +149,7 @@ def test_parallel_jobs_axolotl_sweep_recipe(
 
     jobs = (
         ns.JobSpec(
-            [
+            command=[
                 "bash",
                 "-lc",
                 f"axolotl train {config}"
@@ -208,13 +202,13 @@ def test_parallel_jobs_axolotl_sweep_recipe(
             events.append(("display", self._name))
             print(f"{self.id}  {self._name}\n  {self.status}")
 
-    def create(
-        self: ns.JobSpec, *_args: object, **_kwargs: object
-    ) -> _SweepRun:
-        events.append(("create", self.name))
-        return _SweepRun(f"run-{self.name}", self.name)
+    def create(self: ns.Job, *_args: object, **_kwargs: object) -> _SweepRun:
+        name = self.spec.name
+        assert name is not None
+        events.append(("create", name))
+        return _SweepRun(f"run-{name}", name)
 
-    monkeypatch.setattr(module.ns.JobSpec, "create", create)
+    monkeypatch.setattr(module.ns.Job, "create", create)
     module.main()
     out = capsys.readouterr().out
     assert [kind for kind, _name in events] == [
@@ -238,7 +232,7 @@ def test_axolotl_finetuning_recipe() -> None:
     assert "output_dir: /workspace/output" in config_text
 
     job = ns.JobSpec(
-        [
+        command=[
             "bash",
             "-lc",
             "RUN_ID=run-$(date +%Y%m%d-%H%M%S)"
@@ -337,10 +331,11 @@ def _install(
     failed = fail_create or set()
     waiting = raise_wait or set()
 
-    def create(self: ns.JobSpec, *_args: object, **_kwargs: object) -> _Run:
-        size = int(self.command[-1])
+    def create(self: ns.Job, *_args: object, **_kwargs: object) -> _Run:
+        spec = self.spec
+        size = int(spec.command[-1])
         events.append(("create", size))
-        jobs.append(self)
+        jobs.append(spec)
         if size in failed:
             raise RuntimeError("quota")
         status = "COMPLETED" if status_of is None else status_of(size)
@@ -373,7 +368,7 @@ def _install(
             stderr="",
         )
 
-    monkeypatch.setattr(module.ns.JobSpec, "create", create)
+    monkeypatch.setattr(module.ns.Job, "create", create)
     monkeypatch.setattr(module.subprocess, "run", aws)
     if clock is not None:
         monkeypatch.setattr(module.time, "monotonic", clock.monotonic)
@@ -391,12 +386,12 @@ def test_matrix_import_is_idle(monkeypatch: pytest.MonkeyPatch) -> None:
     def run(*_args: object, **_kwargs: object) -> None:
         calls.append("run")
 
-    def create(self: ns.JobSpec, *_args: object, **_kwargs: object) -> None:
+    def create(self: ns.Job, *_args: object, **_kwargs: object) -> None:
         calls.append("create")
         raise AssertionError("create during import")
 
     monkeypatch.setattr(subprocess, "run", run)
-    monkeypatch.setattr(ns.JobSpec, "create", create)
+    monkeypatch.setattr(ns.Job, "create", create)
     module = _matrix()
     assert calls == []
     assert "torch" not in sys.modules
@@ -535,7 +530,7 @@ def test_matrix_jobs_are_submitted_before_any_wait(
         )
         assert job.image == module.IMAGE
         assert job.gpu == "h100"
-        assert job.timeout_seconds == 3600
+        assert job.timeout == 3600
         assert job.pricing == "on-demand"
         assert job.volumes == (volume,)
         wait = next(

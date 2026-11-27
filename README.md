@@ -30,17 +30,17 @@ Python 3.10 or later. It depends on `nebius>=0.6.43,<0.7`, `PyYAML>=6`, and `ric
 import nebius_serverless as ns
 
 spec = ns.JobSpec(
-    ["nvidia-smi"],
+    command=["nvidia-smi"],
     image="nvidia/cuda:13.1.1-runtime-ubuntu24.04",
     gpu="h100",
     timeout="1h",
 )
-job = spec.create()
+job = ns.Job(spec).create()
 job.wait()
 job.display()
 ```
 
-`gpu="h100"` asks Nebius for one H100, and Nebius picks the platform and preset in the project's region. `create()` returns once Nebius has accepted the job. `job.wait()` polls until the job ends and prints each new state. `job.get()` fetches once, `job.cancel()` requests cancellation, and `ns.jobs.get(id)` reloads a job from a saved id. `create(dry_run=True)` returns the request and creates nothing. The same recipe loads from YAML with `ns.JobSpec.from_yaml("job.yaml")`. Logs are `nebius ai job logs <id>`: this library does not stream them.
+A `JobSpec` is data: it makes no Nebius calls, and `spec.clone(...)` copies it with changes. `gpu="h100"` asks Nebius for one H100, and Nebius picks the platform and preset in the project's region. `ns.Job(spec).create()` creates the job once and returns when Nebius has accepted it. `job.wait()` polls until the job ends and prints each new state. `job.get()` fetches once, `job.cancel()` requests cancellation, and `ns.jobs.get(id)` reloads a job from a saved id. `job.dry_run()` returns the request and creates nothing. The same spec loads from YAML with `ns.JobSpec.from_yaml("job.yaml")`. Logs are `nebius ai job logs <id>`: this library does not stream them.
 <!-- --8<-- [end:job] -->
 
 <!-- --8<-- [start:endpoint] -->
@@ -55,7 +55,7 @@ spec = ns.EndpointSpec(
     gpu="h100",
     port=8000,
 )
-endpoint = spec.create()
+endpoint = ns.Endpoint(spec).create()
 endpoint.wait(probe="/v1/models")  # RUNNING, and the server answers
 print(endpoint.url, endpoint.token)
 endpoint.delete()

@@ -27,7 +27,7 @@ def _create(
     name: str | None = "train",
 ) -> ns.Job:
     spec = ns.JobSpec(
-        ["python", "train.py"],
+        command=["python", "train.py"],
         image="pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime",
         gpu="h100",
         timeout="2h",
@@ -35,7 +35,7 @@ def _create(
         restart_attempts=restart_attempts,
         name=name,
     )
-    return spec.create(transport=fake, quiet=True, **WHERE)
+    return ns.Job(spec).create(transport=fake, quiet=True, **WHERE)
 
 
 def _names(fake: FakeTransport) -> list[str]:

@@ -16,7 +16,7 @@ WHERE = {"region": "eu-north1", "project": "project-test-0001"}
 
 def _job(**kwargs: object) -> ns.JobSpec:
     return ns.JobSpec(
-        ["nvidia-smi"],
+        command=["nvidia-smi"],
         image="nvidia/cuda:13.1.1-runtime-ubuntu24.04",
         timeout="1h",
         **kwargs,  # type: ignore[arg-type]
@@ -32,12 +32,12 @@ def _endpoint(**kwargs: object) -> ns.EndpointSpec:
 
 
 CASES = [
-    (_job, FakeTransport, build_create_request),
-    (_endpoint, FakeEndpointTransport, build_endpoint_request),
+    (_job, ns.Job, FakeTransport, build_create_request),
+    (_endpoint, ns.Endpoint, FakeEndpointTransport, build_endpoint_request),
 ]
 
 
-@pytest.mark.parametrize(("build", "fake_type", "to_proto"), CASES)
+@pytest.mark.parametrize(("build", "handle", "fake_type", "to_proto"), CASES)
 @pytest.mark.parametrize(
     ("kwargs", "field", "value", "shm"),
     [
@@ -48,6 +48,7 @@ CASES = [
 )
 def test_selectors_are_sent_without_platform_or_preset(
     build: object,
+    handle: type,
     fake_type: type,
     to_proto: object,
     kwargs: dict[str, object],
@@ -56,11 +57,11 @@ def test_selectors_are_sent_without_platform_or_preset(
     shm: int | None,
 ) -> None:
     recipe = build(**kwargs)  # type: ignore[operator]
-    described = recipe.create(dry_run=True, **WHERE)
+    described = handle(recipe).dry_run(**WHERE)
     assert described[field] == value
     assert "platform" not in described and "preset" not in described
     fake = fake_type()
-    recipe.create(transport=fake, quiet=True, **WHERE)
+    handle(recipe).create(transport=fake, quiet=True, **WHERE)
     spec = fake.bodies[0]["spec"]
     assert spec[field] == [value]
     assert "platform" not in spec and "preset" not in spec

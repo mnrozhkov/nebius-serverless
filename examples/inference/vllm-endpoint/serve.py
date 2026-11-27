@@ -20,7 +20,7 @@ def main() -> None:
 
     # Describe what should serve. Omit command to keep the image entrypoint.
     spec = ns.EndpointSpec(
-        [
+        command=[
             "bash",
             "-c",
             "python3 -m vllm.entrypoints.openai.api_server "
@@ -33,8 +33,8 @@ def main() -> None:
         name="qwen-tiny",
     )
 
-    # Start one endpoint. Its generated token is endpoint.token.
-    endpoint = spec.create()
+    # Create one endpoint. Its generated token is endpoint.token.
+    endpoint = ns.Endpoint(spec).create()
     try:
         # RUNNING with a URL, then /v1/models answers: the model is loaded.
         endpoint.wait(probe="/v1/models")

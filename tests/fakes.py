@@ -11,6 +11,7 @@ class FakeTransport:
 
     def __init__(self) -> None:
         self.bodies: list[dict[str, object]] = []
+        self.dry_runs: list[dict[str, object]] = []
         self.keys: list[str] = []
         # Results returned, in order, before the normal behaviour.
         self.outcomes: list[CreateResult] = []
@@ -47,6 +48,13 @@ class FakeTransport:
             accepted=True,
             state=self.state,
         )
+
+    def dry_run(self, body: Mapping[str, object]) -> CreateResult:
+        """Records the body. Creates nothing; ``failure`` rejects it."""
+        self.dry_runs.append(copy.deepcopy(dict(body)))
+        if self.failure is not None:
+            return CreateResult(accepted=False, failure=self.failure)
+        return CreateResult(accepted=True)
 
     def get(self, job_id: str) -> dict[str, object]:
         self.gets.append(job_id)
@@ -91,6 +99,7 @@ class FakeEndpointTransport:
 
     def __init__(self) -> None:
         self.bodies: list[dict[str, object]] = []
+        self.dry_runs: list[dict[str, object]] = []
         self.keys: list[str] = []
         # Results returned, in order, before the normal behaviour.
         self.outcomes: list[CreateResult] = []
@@ -135,6 +144,18 @@ class FakeEndpointTransport:
             accepted=True,
             state=self.state,
         )
+
+    def dry_run(self, body: Mapping[str, object]) -> CreateResult:
+        """Records the body. Creates nothing; ``failure`` rejects it."""
+        self.dry_runs.append(copy.deepcopy(dict(body)))
+        if self.failure is not None:
+            return CreateResult(
+                accepted=False,
+                failure=self.failure,
+                code=self.code,
+                message=self.message,
+            )
+        return CreateResult(accepted=True)
 
     def get(self, endpoint_id: str) -> dict[str, object]:
         self.gets.append(endpoint_id)

@@ -21,13 +21,12 @@ def _job(**kwargs: object) -> ns.JobSpec:
         "timeout": "1h",
     }
     fields.update(kwargs)
-    command = fields.pop("command", ["nvidia-smi"])
-    return ns.JobSpec(command, **fields)  # type: ignore[arg-type]
+    fields.setdefault("command", ["nvidia-smi"])
+    return ns.JobSpec(**fields)  # type: ignore[arg-type]
 
 
 def _dry(job: ns.JobSpec, region: str = "eu-north1") -> dict[str, object]:
-    described = job.create(
-        dry_run=True,
+    described = ns.Job(job).dry_run(
         region=region,
         project="project-1",
     )
@@ -200,7 +199,7 @@ def test_from_yaml_matches_the_constructor(tmp_path: Path) -> None:
     )
     loaded = ns.JobSpec.from_yaml(path)
     built = ns.JobSpec(
-        ["bash", "-c", "nvidia-smi"],
+        command=["bash", "-c", "nvidia-smi"],
         image=CUDA,
         platform="gpu-l40s-a",
         preset="1gpu-8vcpu-32gb",
@@ -293,9 +292,11 @@ def test_construct_and_yaml_do_not_import_the_sdk(tmp_path: Path) -> None:
     code = (
         "import sys\n"
         "import nebius_serverless as ns\n"
-        "ns.JobSpec(['nvidia-smi'], image='python:3.12-slim', timeout='1h')\n"
-        "job = ns.JobSpec.from_yaml(sys.argv[1])\n"
-        "job.create(dry_run=True, region='eu-north1', project='p')\n"
+        "ns.JobSpec(\n"
+        "    command=['nvidia-smi'], image='python:3.12-slim', timeout='1h'\n"
+        ")\n"
+        "spec = ns.JobSpec.from_yaml(sys.argv[1])\n"
+        "ns.Job(spec).dry_run(region='eu-north1', project='p')\n"
         "assert 'nebius' not in sys.modules\n"
     )
     completed = subprocess.run(
@@ -309,4 +310,4 @@ def test_construct_and_yaml_do_not_import_the_sdk(tmp_path: Path) -> None:
 
 def test_timeout_is_required() -> None:
     with pytest.raises(TypeError, match="timeout"):
-        ns.JobSpec(["true"], image=CUDA)  # type: ignore[call-arg]
+        ns.JobSpec(command=["true"], image=CUDA)  # type: ignore[call-arg]

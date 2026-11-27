@@ -29,13 +29,25 @@
     "kind": "class",
     "members": {
       "__init__": [
+        "self:POSITIONAL_ONLY",
+        "spec:POSITIONAL_ONLY=None",
+        "fields:VAR_KEYWORD"
+      ],
+      "create": [
         "self:POSITIONAL_OR_KEYWORD",
-        "endpoint_id:POSITIONAL_OR_KEYWORD",
-        "name:KEYWORD_ONLY",
-        "transport:KEYWORD_ONLY",
-        "create_state:KEYWORD_ONLY=None",
-        "record:KEYWORD_ONLY=None",
-        "token:KEYWORD_ONLY=None"
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "idempotency_key:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "transport:KEYWORD_ONLY=None"
+      ],
+      "create_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "idempotency_key:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "transport:KEYWORD_ONLY=None"
       ],
       "delete": [
         "self:POSITIONAL_OR_KEYWORD",
@@ -47,6 +59,13 @@
       ],
       "display": [
         "self:POSITIONAL_OR_KEYWORD"
+      ],
+      "dry_run": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "server:KEYWORD_ONLY=False",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None"
       ],
       "get": [
         "self:POSITIONAL_OR_KEYWORD",
@@ -65,6 +84,7 @@
       "reveal_token_async": [
         "self:POSITIONAL_OR_KEYWORD"
       ],
+      "spec": "property",
       "start": [
         "self:POSITIONAL_OR_KEYWORD",
         "quiet:KEYWORD_ONLY=False"
@@ -81,6 +101,10 @@
       "stop_async": [
         "self:POSITIONAL_OR_KEYWORD",
         "quiet:KEYWORD_ONLY=False"
+      ],
+      "to_cli": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "project:KEYWORD_ONLY=None"
       ],
       "token": "property",
       "url": "property",
@@ -104,12 +128,39 @@
     }
   },
   "EndpointSpec": {
+    "fields": [
+      "image",
+      "command=None",
+      "port=None",
+      "ports=None",
+      "gpu=None",
+      "cpu=None",
+      "platform=None",
+      "preset=None",
+      "pricing='on-demand'",
+      "auth='token'",
+      "token=None",
+      "token_secret=None",
+      "volumes=()",
+      "inject_files=()",
+      "env={}",
+      "secrets={}",
+      "name=None",
+      "disk=None",
+      "shm=None",
+      "working_dir=None",
+      "registry_secret=None",
+      "spot_policy=None",
+      "subnet_id=None",
+      "profile=None",
+      "project=None"
+    ],
     "kind": "class",
     "members": {
       "__init__": [
         "self:POSITIONAL_OR_KEYWORD",
-        "command:POSITIONAL_OR_KEYWORD=None",
         "image:KEYWORD_ONLY",
+        "command:KEYWORD_ONLY=None",
         "port:KEYWORD_ONLY=None",
         "ports:KEYWORD_ONLY=None",
         "gpu:KEYWORD_ONLY=None",
@@ -119,47 +170,50 @@
         "pricing:KEYWORD_ONLY='on-demand'",
         "auth:KEYWORD_ONLY='token'",
         "token:KEYWORD_ONLY=None",
-        "subnet_id:KEYWORD_ONLY=None",
+        "token_secret:KEYWORD_ONLY=None",
         "volumes:KEYWORD_ONLY=None",
         "inject_files:KEYWORD_ONLY=None",
         "env:KEYWORD_ONLY=None",
+        "secrets:KEYWORD_ONLY=None",
         "name:KEYWORD_ONLY=None",
         "disk:KEYWORD_ONLY=None",
-        "profile:KEYWORD_ONLY=None",
-        "project:KEYWORD_ONLY=None",
-        "token_secret:KEYWORD_ONLY=None",
+        "shm:KEYWORD_ONLY=None",
         "working_dir:KEYWORD_ONLY=None",
-        "secrets:KEYWORD_ONLY=None",
         "registry_secret:KEYWORD_ONLY=None",
         "spot_policy:KEYWORD_ONLY=None",
-        "shm:KEYWORD_ONLY=None"
+        "subnet_id:KEYWORD_ONLY=None",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None"
       ],
-      "create": [
+      "clone": [
         "self:POSITIONAL_OR_KEYWORD",
-        "dry_run:POSITIONAL_OR_KEYWORD=False",
-        "region:KEYWORD_ONLY=None",
-        "project:KEYWORD_ONLY=None",
-        "transport:KEYWORD_ONLY=None",
-        "quiet:KEYWORD_ONLY=False",
-        "idempotency_key:KEYWORD_ONLY=None"
-      ],
-      "create_async": [
-        "self:POSITIONAL_OR_KEYWORD",
-        "dry_run:POSITIONAL_OR_KEYWORD=False",
-        "region:KEYWORD_ONLY=None",
-        "project:KEYWORD_ONLY=None",
-        "transport:KEYWORD_ONLY=None",
-        "quiet:KEYWORD_ONLY=False",
-        "idempotency_key:KEYWORD_ONLY=None"
+        "changes:VAR_KEYWORD"
       ],
       "from_yaml": [
         "cls:POSITIONAL_OR_KEYWORD",
         "path:POSITIONAL_OR_KEYWORD"
       ],
-      "to_cli": [
+      "model_validate": [
+        "cls:POSITIONAL_OR_KEYWORD",
+        "obj:POSITIONAL_OR_KEYWORD",
+        "args:VAR_POSITIONAL",
+        "kwargs:VAR_KEYWORD"
+      ],
+      "model_validate_json": [
+        "cls:POSITIONAL_OR_KEYWORD",
+        "json_data:POSITIONAL_OR_KEYWORD",
+        "args:VAR_POSITIONAL",
+        "kwargs:VAR_KEYWORD"
+      ],
+      "to_dict": [
         "self:POSITIONAL_OR_KEYWORD",
-        "project:KEYWORD_ONLY=None"
-      ]
+        "redact:KEYWORD_ONLY=True"
+      ],
+      "to_yaml": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "redact:KEYWORD_ONLY=True"
+      ],
+      "token_text": "property"
     }
   },
   "Error": {
@@ -211,14 +265,9 @@
     "kind": "class",
     "members": {
       "__init__": [
-        "self:POSITIONAL_OR_KEYWORD",
-        "job_id:POSITIONAL_OR_KEYWORD",
-        "name:KEYWORD_ONLY",
-        "transport:KEYWORD_ONLY",
-        "create_state:KEYWORD_ONLY=None",
-        "record:KEYWORD_ONLY=None",
-        "resubmit:KEYWORD_ONLY=None",
-        "resubmit_budget:KEYWORD_ONLY=0"
+        "self:POSITIONAL_ONLY",
+        "spec:POSITIONAL_ONLY",
+        "fields:VAR_KEYWORD"
       ],
       "attempts": "property",
       "cancel": [
@@ -229,8 +278,31 @@
         "self:POSITIONAL_OR_KEYWORD",
         "quiet:KEYWORD_ONLY=False"
       ],
+      "create": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "idempotency_key:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "transport:KEYWORD_ONLY=None"
+      ],
+      "create_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "idempotency_key:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "transport:KEYWORD_ONLY=None"
+      ],
       "display": [
         "self:POSITIONAL_OR_KEYWORD"
+      ],
+      "dry_run": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "server:KEYWORD_ONLY=False",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None"
       ],
       "get": [
         "self:POSITIONAL_OR_KEYWORD",
@@ -244,7 +316,12 @@
       "name": "property",
       "preemptions": "property",
       "record": "property",
+      "spec": "property",
       "status": "property",
+      "to_cli": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "project:KEYWORD_ONLY=None"
+      ],
       "wait": [
         "self:POSITIONAL_OR_KEYWORD",
         "timeout:POSITIONAL_OR_KEYWORD=None",
@@ -258,58 +335,86 @@
     }
   },
   "JobSpec": {
+    "fields": [
+      "command",
+      "image",
+      "gpu=None",
+      "cpu=None",
+      "platform=None",
+      "preset=None",
+      "timeout",
+      "pricing='on-demand'",
+      "restart_attempts=0",
+      "preemption_retries=None",
+      "volumes=()",
+      "inject_files=()",
+      "env={}",
+      "secrets={}",
+      "name=None",
+      "disk=None",
+      "shm=None",
+      "working_dir=None",
+      "registry_secret=None",
+      "spot_policy=None",
+      "subnet_id=None",
+      "profile=None",
+      "project=None"
+    ],
     "kind": "class",
     "members": {
       "__init__": [
         "self:POSITIONAL_OR_KEYWORD",
-        "command:POSITIONAL_OR_KEYWORD",
+        "command:KEYWORD_ONLY",
         "image:KEYWORD_ONLY",
+        "timeout:KEYWORD_ONLY",
         "gpu:KEYWORD_ONLY=None",
         "cpu:KEYWORD_ONLY=None",
         "platform:KEYWORD_ONLY=None",
         "preset:KEYWORD_ONLY=None",
-        "timeout:KEYWORD_ONLY",
         "pricing:KEYWORD_ONLY='on-demand'",
-        "subnet_id:KEYWORD_ONLY=None",
+        "restart_attempts:KEYWORD_ONLY=0",
+        "preemption_retries:KEYWORD_ONLY=None",
         "volumes:KEYWORD_ONLY=None",
         "inject_files:KEYWORD_ONLY=None",
         "env:KEYWORD_ONLY=None",
+        "secrets:KEYWORD_ONLY=None",
         "name:KEYWORD_ONLY=None",
         "disk:KEYWORD_ONLY=None",
-        "profile:KEYWORD_ONLY=None",
-        "project:KEYWORD_ONLY=None",
-        "restart_attempts:KEYWORD_ONLY=0",
+        "shm:KEYWORD_ONLY=None",
         "working_dir:KEYWORD_ONLY=None",
-        "secrets:KEYWORD_ONLY=None",
         "registry_secret:KEYWORD_ONLY=None",
         "spot_policy:KEYWORD_ONLY=None",
-        "shm:KEYWORD_ONLY=None"
+        "subnet_id:KEYWORD_ONLY=None",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None"
       ],
-      "create": [
+      "clone": [
         "self:POSITIONAL_OR_KEYWORD",
-        "dry_run:POSITIONAL_OR_KEYWORD=False",
-        "region:KEYWORD_ONLY=None",
-        "project:KEYWORD_ONLY=None",
-        "transport:KEYWORD_ONLY=None",
-        "quiet:KEYWORD_ONLY=False",
-        "idempotency_key:KEYWORD_ONLY=None"
-      ],
-      "create_async": [
-        "self:POSITIONAL_OR_KEYWORD",
-        "dry_run:POSITIONAL_OR_KEYWORD=False",
-        "region:KEYWORD_ONLY=None",
-        "project:KEYWORD_ONLY=None",
-        "transport:KEYWORD_ONLY=None",
-        "quiet:KEYWORD_ONLY=False",
-        "idempotency_key:KEYWORD_ONLY=None"
+        "changes:VAR_KEYWORD"
       ],
       "from_yaml": [
         "cls:POSITIONAL_OR_KEYWORD",
         "path:POSITIONAL_OR_KEYWORD"
       ],
-      "to_cli": [
+      "model_validate": [
+        "cls:POSITIONAL_OR_KEYWORD",
+        "obj:POSITIONAL_OR_KEYWORD",
+        "args:VAR_POSITIONAL",
+        "kwargs:VAR_KEYWORD"
+      ],
+      "model_validate_json": [
+        "cls:POSITIONAL_OR_KEYWORD",
+        "json_data:POSITIONAL_OR_KEYWORD",
+        "args:VAR_POSITIONAL",
+        "kwargs:VAR_KEYWORD"
+      ],
+      "to_dict": [
         "self:POSITIONAL_OR_KEYWORD",
-        "project:KEYWORD_ONLY=None"
+        "redact:KEYWORD_ONLY=True"
+      ],
+      "to_yaml": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "redact:KEYWORD_ONLY=True"
       ]
     }
   },
@@ -372,7 +477,14 @@
   },
   "ValidationError": {
     "kind": "class",
-    "members": {}
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "message:POSITIONAL_OR_KEYWORD",
+        "details:KEYWORD_ONLY=()",
+        "kwargs:VAR_KEYWORD"
+      ]
+    }
   },
   "WaitTimeout": {
     "kind": "class",

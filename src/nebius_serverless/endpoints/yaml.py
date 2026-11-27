@@ -6,7 +6,7 @@ from pathlib import Path
 from ..core.yaml_loader import load_document
 from ..errors import ValidationError
 
-_ENDPOINT_ALLOWED = frozenset(
+ENDPOINT_ALLOWED = frozenset(
     {
         "schema_version",
         "kind",
@@ -61,7 +61,7 @@ def _endpoint_fields(
         # The value is never echoed.
         raise ValidationError(_TOKEN_IN_YAML, operation="from_yaml")
     unknown = sorted(
-        str(key) for key in document if key not in _ENDPOINT_ALLOWED
+        str(key) for key in document if key not in ENDPOINT_ALLOWED
     )
     if unknown:
         names = ", ".join(unknown)

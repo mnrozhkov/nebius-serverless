@@ -30,12 +30,11 @@ def _endpoint(**kwargs: object) -> ns.EndpointSpec:
         "env": {"HF_TOKEN": SECRET},
     }
     fields.update(kwargs)
-    command = fields.pop("command", None)
-    return ns.EndpointSpec(command, **fields)  # type: ignore[arg-type]
+    return ns.EndpointSpec(**fields)  # type: ignore[arg-type]
 
 
 def _create(fake: FakeEndpointTransport, **kwargs: object) -> ns.Endpoint:
-    service = _endpoint(**kwargs).create(
+    service = ns.Endpoint(_endpoint(**kwargs)).create(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -67,7 +66,7 @@ def test_constructing_does_not_contact_nebius() -> None:
     assert endpoint.auth == "token"
     assert endpoint.token is None
     assert endpoint.pricing == "on-demand"
-    assert endpoint.env == (("HF_TOKEN", SECRET),)
+    assert endpoint.env == {"HF_TOKEN": SECRET}
     assert endpoint.name == "qwen-tiny"
     assert _endpoint().name is None
 
@@ -85,8 +84,8 @@ def test_auth_and_token_rules() -> None:
     with pytest.raises(ns.ValidationError, match="auth='token'") as caught:
         _endpoint(auth="none", token=TOKEN)
     assert TOKEN not in str(caught.value)
-    assert _endpoint(token=TOKEN).token == TOKEN
-    assert _endpoint(auth="token", token=TOKEN).token == TOKEN
+    assert _endpoint(token=TOKEN).token_text == TOKEN
+    assert _endpoint(auth="token", token=TOKEN).token_text == TOKEN
     assert TOKEN not in repr(_endpoint(auth="token", token=TOKEN))
 
 
@@ -183,10 +182,10 @@ def test_create_body_with_command_spot_and_token() -> None:
 def test_token_auth_without_token_generates_one_per_create() -> None:
     fake = FakeEndpointTransport()
     endpoint = _endpoint(auth="token")
-    first = endpoint.create(
+    first = ns.Endpoint(endpoint).create(
         region="eu-north1", project="p", transport=fake
     )
-    second = endpoint.create(
+    second = ns.Endpoint(endpoint).create(
         region="eu-north1", project="p", transport=fake
     )
     assert isinstance(first, ns.Endpoint)
@@ -201,13 +200,14 @@ def test_token_auth_without_token_generates_one_per_create() -> None:
 
 def test_dry_run_hides_env_values_and_token() -> None:
     fake = FakeEndpointTransport()
-    described = _endpoint(
-        command=SERVE,
-        auth="token",
-        token=TOKEN,
-        name="qwen-tiny",
-    ).create(
-        dry_run=True,
+    described = ns.Endpoint(
+        _endpoint(
+            command=SERVE,
+            auth="token",
+            token=TOKEN,
+            name="qwen-tiny",
+        )
+    ).dry_run(
         region="eu-north1",
         project="project-1",
         transport=fake,
@@ -231,8 +231,8 @@ def test_dry_run_hides_env_values_and_token() -> None:
     }
     assert SECRET not in repr(described)
     assert TOKEN not in repr(described)
-    generated = _endpoint(auth="token").create(
-        dry_run=True, region="eu-north1", project="p"
+    generated = ns.Endpoint(_endpoint(auth="token")).dry_run(
+        region="eu-north1", project="p"
     )
     assert isinstance(generated, dict)
     assert generated["token"] == "generated"
@@ -486,7 +486,9 @@ def test_sync_calls_inside_a_loop_name_the_twin() -> None:
 
     async def inside() -> None:
         with pytest.raises(ns.ValidationError, match="create_async"):
-            _endpoint().create(dry_run=True, region="eu-north1", project="p")
+            ns.Endpoint(_endpoint()).create(
+                region="eu-north1", project="p", transport=fake
+            )
         with pytest.raises(ns.ValidationError, match="wait_async"):
             service.wait()
         with pytest.raises(ns.ValidationError, match="stop_async"):
@@ -499,6 +501,7 @@ def test_sync_calls_inside_a_loop_name_the_twin() -> None:
             ns.endpoints.get(service.id, transport=fake)
 
     asyncio.run(inside())
+    assert len(fake.bodies) == 1
     assert fake.stops == []
     assert fake.deletes == []
 
@@ -509,7 +512,7 @@ def test_awaited_twins(monkeypatch: pytest.MonkeyPatch) -> None:
     endpoint = _endpoint()
 
     async def flow() -> None:
-        service = await endpoint.create_async(
+        service = await ns.Endpoint(endpoint).create_async(
             region="eu-north1",
             project="p",
             transport=fake,
@@ -702,15 +705,12 @@ def test_quickstart_matches_the_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     built: list[ns.EndpointSpec] = []
-    original = ns.EndpointSpec.create
 
-    def capture(
-        self: ns.EndpointSpec, *args: object, **kwargs: object
-    ) -> None:
-        built.append(self)
+    def capture(self: ns.Endpoint, *args: object, **kwargs: object) -> None:
+        built.append(self.spec)
         raise SystemExit("stop before create")
 
-    monkeypatch.setattr(ns.EndpointSpec, "create", capture)
+    monkeypatch.setattr(ns.Endpoint, "create", capture)
     with pytest.raises(SystemExit):
         module.main()
     from_file = ns.EndpointSpec.from_yaml(
@@ -718,9 +718,7 @@ def test_quickstart_matches_the_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     def described(endpoint: ns.EndpointSpec) -> object:
-        return original(
-            endpoint, dry_run=True, region="eu-north1", project="p"
-        )
+        return ns.Endpoint(endpoint).dry_run(region="eu-north1", project="p")
 
     assert described(built[0]) == described(from_file)
 
@@ -743,9 +741,11 @@ def test_quickstart_stops_on_error_even_with_a_url(
     fake = FakeEndpointTransport()
     fake.states = ["ERROR"]
     fake.urls = ["https://ep.example.nebius.cloud"]
-    original = ns.EndpointSpec.create
+    original = ns.Endpoint.create
 
-    def create(self: ns.EndpointSpec, *args: object, **kwargs: object):
+    def create(
+        self: ns.Endpoint, *args: object, **kwargs: object
+    ) -> ns.Endpoint:
         return original(
             self, region="eu-north1", project="p", transport=fake, quiet=True
         )
@@ -753,7 +753,7 @@ def test_quickstart_stops_on_error_even_with_a_url(
     def no_probe(_request: object, timeout: float) -> None:
         raise AssertionError("probed the model of an ERROR endpoint")
 
-    monkeypatch.setattr(ns.EndpointSpec, "create", create)
+    monkeypatch.setattr(ns.Endpoint, "create", create)
     monkeypatch.setattr(
         "nebius_serverless.endpoints.endpoint.open_url", no_probe
     )

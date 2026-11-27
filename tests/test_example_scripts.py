@@ -45,16 +45,16 @@ def test_quickstart_creates_and_waits(
         def display(self) -> None:
             print(f"{self.id}\n  {self.status}")
 
-    def fake_create(self: ns.JobSpec) -> _FakeQuickRun:
-        created.append(self)
+    def fake_create(self: ns.Job) -> _FakeQuickRun:
+        created.append(self.spec)
         return _FakeQuickRun()
 
-    monkeypatch.setattr(module.ns.JobSpec, "create", fake_create)
+    monkeypatch.setattr(module.ns.Job, "create", fake_create)
     module.main()
     assert len(created) == 1
     assert created[0].command == ("nvidia-smi",)
     assert created[0].gpu == "h100"
-    assert created[0].timeout_seconds == 3600
+    assert created[0].timeout == 3600
     out = capsys.readouterr().out
     assert "job-quick-1" in out
     assert "COMPLETED" in out
@@ -81,11 +81,11 @@ def test_axolotl_finetune_creates_and_waits(
         def display(self) -> None:
             print(f"{self.id}\n  {self.status}")
 
-    def fake_create(self: ns.JobSpec) -> _FakeTrainRun:
-        created.append(self)
+    def fake_create(self: ns.Job) -> _FakeTrainRun:
+        created.append(self.spec)
         return _FakeTrainRun()
 
-    monkeypatch.setattr(module.ns.JobSpec, "create", fake_create)
+    monkeypatch.setattr(module.ns.Job, "create", fake_create)
     module.main()
     assert len(created) == 1
     job = created[0]
@@ -104,7 +104,7 @@ def test_axolotl_finetune_creates_and_waits(
     assert job.gpu == "h100"
     assert job.pricing == "spot"
     assert job.disk == "500Gi"
-    assert job.timeout_seconds == 24 * 3600
+    assert job.timeout == 24 * 3600
     assert job.volumes == ("s3://fine-tuning-axolotl:/workspace/data:rw",)
     out = capsys.readouterr().out
     assert "job-train-1" in out
@@ -114,14 +114,14 @@ def test_axolotl_finetune_creates_and_waits(
 def test_the_cli_tab_is_what_to_cli_prints() -> None:
     """docs show job_quickstart.sh as the CLI form of job_quickstart.py."""
     module = _load_module(EXAMPLES / "quickstarts" / "job_quickstart.py")
-    created: list[ns.JobSpec] = []
+    created: list[ns.Job] = []
 
-    def capture(self: ns.JobSpec) -> None:
+    def capture(self: ns.Job) -> None:
         created.append(self)
         raise SystemExit("stop before create")
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(module.ns.JobSpec, "create", capture)
+        patch.setattr(module.ns.Job, "create", capture)
         with pytest.raises(SystemExit):
             module.main()
 
@@ -153,12 +153,12 @@ def test_image_quickstart_builds_reuses_and_runs(
         built.append(self)
         return ref
 
-    def fake_create(self: ns.JobSpec) -> _FakeJob:
-        created.append(self)
+    def fake_create(self: ns.Job) -> _FakeJob:
+        created.append(self.spec)
         return _FakeJob()
 
     monkeypatch.setattr(module.ns.Image, "build", fake_build)
-    monkeypatch.setattr(module.ns.JobSpec, "create", fake_create)
+    monkeypatch.setattr(module.ns.Job, "create", fake_create)
     module.main()
     assert len(built) == 2
     assert built[0].dockerfile_string == module.DOCKERFILE

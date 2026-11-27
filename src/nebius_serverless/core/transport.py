@@ -56,6 +56,9 @@ class Transport(Protocol):
     ) -> CreateResult:
         """Send one create with this ``x-idempotency-key``. Do not retry."""
 
+    def dry_run(self, body: Mapping[str, object]) -> CreateResult:
+        """Send the create with ``dry_run`` set. Nebius creates nothing."""
+
     def get(self, job_id: str) -> dict[str, object]:
         """Fetch one job."""
 
@@ -73,6 +76,9 @@ class EndpointTransport(Protocol):
     ) -> CreateResult:
         """Send one create with this ``x-idempotency-key``. Do not retry."""
 
+    def dry_run(self, body: Mapping[str, object]) -> CreateResult:
+        """Send the create with ``dry_run`` set. Nebius creates nothing."""
+
     def get(self, endpoint_id: str) -> dict[str, object]:
         """Fetch one endpoint, without ``spec.auth_token``."""
 
@@ -87,6 +93,10 @@ class EndpointTransport(Protocol):
 
     def delete(self, endpoint_id: str) -> dict[str, object]:
         """Request deletion once."""
+
+
+class _DryRuns(Protocol):
+    def dry_run(self, body: Mapping[str, object]) -> CreateResult: ...
 
 
 class _Creates(Protocol):
@@ -235,6 +245,43 @@ def call_transport(
         state=result.state,
         request_id=result.request_id,
     )
+
+
+def call_dry_run(
+    transport: _DryRuns,
+    body: Mapping[str, object],
+    *,
+    noun: str = "job",
+) -> dict[str, object]:
+    """Ask Nebius to validate ``body`` without creating anything.
+
+    Returns the server's answer. A rejection raises what a create would
+    raise: ``ValidationError``, ``AccessError`` or ``CapacityError``.
+    """
+    try:
+        result = scrub_result(transport.dry_run(body), body)
+    except Error:
+        raise
+    except Exception as exc:
+        raise TransportError(
+            f"The server dry run for the {noun} failed. Nothing was "
+            "created.",
+            operation="dry_run",
+            request_id=exposed_request_id(exc),
+            recovery="Run dry_run(server=True) again.",
+        ) from None
+    if result.failure in ("access", "capacity", "rejected"):
+        finish_create(result, noun=noun)
+    if result.failure is not None or not result.accepted:
+        raise TransportError(
+            f"The server dry run for the {noun} did not complete "
+            f"({result.code or result.failure or 'unknown'}). Nothing was "
+            "created.",
+            operation="dry_run",
+            request_id=result.request_id,
+            recovery="Run dry_run(server=True) again.",
+        )
+    return {"accepted": True, "request_id": result.request_id}
 
 
 def capacity_text(

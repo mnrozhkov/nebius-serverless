@@ -93,10 +93,9 @@ class Image:
         RUN pip install requests
         \"\"\")
         ref = image.build()  # builds once; later calls reuse the image
-        job = ns.JobSpec(
+        job = ns.Job(
             ["python", "-c", "import requests; print(requests.__version__)"],
             image=ref,
-            cpu="2",
             timeout="10m",
         ).create()
     """
@@ -306,13 +305,8 @@ class Image:
                     timeout,
                     disk,
                 )
-                request = spec._create(
-                    dry_run=True,
-                    region=region_id,
-                    project=project_id,
-                    transport=None,
-                    progress=progress,
-                    idempotency_key=None,
+                request = Job(spec).dry_run(
+                    region=region_id, project=project_id
                 )
             return {
                 "image": ref,
@@ -342,15 +336,13 @@ class Image:
                 spec = self._spec(
                     path, ref, registry.host, version, tag, timeout, disk
                 )
-                job = spec._create(
-                    dry_run=False,
+                job = Job(spec)._create(
                     region=region_id,
                     project=project_id,
                     transport=transport,
                     progress=progress,
                     idempotency_key=None,
                 )
-            assert isinstance(job, Job)
             record = job._wait(None, progress)
         finally:
             backend.delete_secret_version(version)
@@ -383,7 +375,7 @@ class Image:
         from ..jobs.spec import JobSpec
 
         return JobSpec(
-            ["/busybox/sh", "-c", BUILD_SCRIPT],
+            command=["/busybox/sh", "-c", BUILD_SCRIPT],
             image=KANIKO,
             timeout=timeout,
             disk=disk,

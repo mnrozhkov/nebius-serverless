@@ -23,17 +23,19 @@ def _spec(**kwargs: object) -> ns.EndpointSpec:
 
 
 def test_the_default_dry_run_asks_for_a_generated_token() -> None:
-    described = _spec().create(dry_run=True, **WHERE)
+    described = ns.Endpoint(_spec()).dry_run(**WHERE)
     assert described["auth"] == "token"
     assert described["token"] == "generated"
 
 
 def test_auth_none_is_an_explicit_public_url() -> None:
-    described = _spec(auth="none").create(dry_run=True, **WHERE)
+    described = ns.Endpoint(_spec(auth="none")).dry_run(**WHERE)
     assert described["auth"] == "none"
     assert "token" not in described
     fake = FakeEndpointTransport()
-    endpoint = _spec(auth="none").create(transport=fake, quiet=True, **WHERE)
+    endpoint = ns.Endpoint(_spec(auth="none")).create(
+        transport=fake, quiet=True, **WHERE
+    )
     assert endpoint.token is None
     body_spec = fake.bodies[0]["spec"]
     assert isinstance(body_spec, dict)
@@ -47,7 +49,9 @@ def test_a_generated_token_is_announced_once_without_its_value(
     stream = io.StringIO()
     monkeypatch.setattr(sys, "stderr", stream)
     caplog.set_level(logging.DEBUG, logger="nebius_serverless")
-    endpoint = _spec().create(transport=FakeEndpointTransport(), **WHERE)
+    endpoint = ns.Endpoint(_spec()).create(
+        transport=FakeEndpointTransport(), **WHERE
+    )
     token = endpoint.token
     assert token
     text = stream.getvalue()
@@ -75,7 +79,9 @@ def test_no_notice_when_nothing_was_generated(
 ) -> None:
     stream = io.StringIO()
     monkeypatch.setattr(sys, "stderr", stream)
-    _spec(**kwargs).create(transport=FakeEndpointTransport(), **WHERE)
+    ns.Endpoint(_spec(**kwargs)).create(
+        transport=FakeEndpointTransport(), **WHERE
+    )
     assert "Token generated" not in stream.getvalue()
 
 
@@ -84,7 +90,9 @@ def test_quiet_suppresses_the_notice(
 ) -> None:
     stream = io.StringIO()
     monkeypatch.setattr(sys, "stderr", stream)
-    _spec().create(transport=FakeEndpointTransport(), quiet=True, **WHERE)
+    ns.Endpoint(_spec()).create(
+        transport=FakeEndpointTransport(), quiet=True, **WHERE
+    )
     assert stream.getvalue() == ""
 
 
@@ -93,7 +101,9 @@ def test_reveal_token_recovers_it_on_a_reloaded_handle(
 ) -> None:
     caplog.set_level(logging.DEBUG, logger="nebius_serverless")
     fake = FakeEndpointTransport()
-    created = _spec().create(transport=fake, quiet=True, **WHERE)
+    created = ns.Endpoint(_spec()).create(
+        transport=fake, quiet=True, **WHERE
+    )
     reloaded = ns.endpoints.get(created.id, transport=fake, quiet=True)
     assert reloaded.token is None
     assert reloaded.reveal_token() == created.token
@@ -106,9 +116,11 @@ def test_reveal_token_recovers_it_on_a_reloaded_handle(
 
 def test_reveal_token_is_none_without_a_plain_token() -> None:
     fake = FakeEndpointTransport()
-    public = _spec(auth="none").create(transport=fake, quiet=True, **WHERE)
+    public = ns.Endpoint(_spec(auth="none")).create(
+        transport=fake, quiet=True, **WHERE
+    )
     assert public.reveal_token() is None
-    secret = _spec(token_secret="mbsec-test-0001").create(
+    secret = ns.Endpoint(_spec(token_secret="mbsec-test-0001")).create(
         transport=fake, quiet=True, **WHERE
     )
     assert secret.reveal_token() is None
@@ -118,6 +130,8 @@ def test_reveal_token_async_twin() -> None:
     import asyncio
 
     fake = FakeEndpointTransport()
-    created = _spec().create(transport=fake, quiet=True, **WHERE)
+    created = ns.Endpoint(_spec()).create(
+        transport=fake, quiet=True, **WHERE
+    )
     reloaded = ns.endpoints.get(created.id, transport=fake, quiet=True)
     assert asyncio.run(reloaded.reveal_token_async()) == created.token

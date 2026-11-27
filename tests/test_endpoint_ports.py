@@ -22,7 +22,7 @@ def _spec(**kwargs: object) -> ns.EndpointSpec:
 
 def _body_ports(recipe: ns.EndpointSpec) -> list[dict[str, object]]:
     fake = FakeEndpointTransport()
-    recipe.create(transport=fake, quiet=True, **WHERE)
+    ns.Endpoint(recipe).create(transport=fake, quiet=True, **WHERE)
     spec = fake.bodies[0]["spec"]
     assert isinstance(spec, dict)
     ports = spec["ports"]
@@ -51,7 +51,7 @@ def test_five_ports_map_to_the_api() -> None:
         {"container_port": 8080, "host_port": 80, "protocol": "HTTP"},
     ]
     fake = FakeEndpointTransport()
-    recipe.create(transport=fake, quiet=True, **WHERE)
+    ns.Endpoint(recipe).create(transport=fake, quiet=True, **WHERE)
     proto = build_endpoint_request(fake.bodies[0]).spec.ports
     got = [(p.container_port, p.host_port, p.protocol.name) for p in proto]
     assert got == [
@@ -61,7 +61,7 @@ def test_five_ports_map_to_the_api() -> None:
         (9000, 0, "UDP"),
         (8080, 80, "HTTP"),
     ]
-    described = recipe.create(dry_run=True, **WHERE)
+    described = ns.Endpoint(recipe).dry_run(**WHERE)
     assert described["ports"] == list(recipe.ports)
     assert "port" not in described
 
@@ -145,7 +145,7 @@ def test_ready_means_a_url_for_each_protocol_that_gets_one(
     ]
     fake.states = ["RUNNING"]
     fake.urls = urls
-    endpoint = _spec(port=8000, auth="none").create(
+    endpoint = ns.Endpoint(_spec(port=8000, auth="none")).create(
         transport=fake, quiet=True, **WHERE
     )
     record = endpoint.wait(quiet=True)
@@ -156,7 +156,9 @@ def test_ready_means_a_url_for_each_protocol_that_gets_one(
 def test_urls_lists_every_managed_url(clock: FakeClock) -> None:
     fake = FakeEndpointTransport()
     fake.urls = [f"{TLS} {HTTPS}"]
-    endpoint = _spec(port=8000).create(transport=fake, quiet=True, **WHERE)
+    endpoint = ns.Endpoint(_spec(port=8000)).create(
+        transport=fake, quiet=True, **WHERE
+    )
     assert endpoint.urls == []
     endpoint.get(quiet=True)
     assert endpoint.urls == [TLS, HTTPS]

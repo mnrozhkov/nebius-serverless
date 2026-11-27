@@ -12,7 +12,7 @@ import nebius_serverless as ns
 def main() -> None:
     """Create the Axolotl fine-tuning job, wait, and print the record."""
     spec = ns.JobSpec(
-        [
+        command=[
             "bash",
             "-lc",
             "RUN_ID=run-$(date +%Y%m%d-%H%M%S)"
@@ -27,7 +27,7 @@ def main() -> None:
         timeout="24h",
         volumes=["s3://fine-tuning-axolotl:/workspace/data:rw"],
     )
-    job = spec.create()
+    job = ns.Job(spec).create()
     job.wait()
     job.display()
 

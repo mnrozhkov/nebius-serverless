@@ -1,4 +1,4 @@
-"""Jobs: the recipe, the cloud job, and lookup by id.
+"""Jobs: the spec, the job, and lookup by id.
 
 ``ns.jobs.get(id)`` reloads a job from a saved id. ``ns.JobSpec`` and
 ``ns.Job`` are the supported names; the modules in this package are
@@ -36,7 +36,9 @@ def get(
 ) -> Job:
     """Fetch ``job_id`` once and return a ``Job``. Does not create.
 
-    Prints one snapshot. ``quiet=True`` suppresses it for this call.
+    The job's ``spec`` is not known, so ``spec``, ``dry_run``,
+    ``to_cli`` and ``create`` raise on it. Prints one snapshot.
+    ``quiet=True`` suppresses it for this call.
     """
     reject_running_loop("get_async")
 
@@ -112,10 +114,9 @@ def _get(
         ),
         progress,
     )
-    name = record_name(record)
-    return Job(
+    return Job._attach(
         job_id,
-        name=name,
+        name=record_name(record),
         transport=chosen,
         record=record,
     )

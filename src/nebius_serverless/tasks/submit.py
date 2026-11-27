@@ -105,7 +105,7 @@ def validate_options(options: dict[str, Any]) -> dict[str, Any]:
         )
     checked = {"timeout": DEFAULT_TIMEOUT, **options}
     try:
-        JobSpec(["true"], image="python:3", **checked)
+        JobSpec(command=["true"], image="python:3", **checked)
     except TypeError as exc:
         raise ValidationError(
             f"Unknown job option: {exc}.", operation=_OP

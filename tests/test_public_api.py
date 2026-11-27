@@ -51,19 +51,51 @@ def _parameters(obj: Any) -> list[str] | None:
     return shown
 
 
+def _fields(model: Any) -> list[str]:
+    """A spec's fields in order, each with its default when it has one."""
+    shown = []
+    for name, info in model.model_fields.items():
+        if info.is_required():
+            shown.append(name)
+            continue
+        factory = info.default_factory
+        default = factory() if factory is not None else info.default
+        shown.append(f"{name}={default!r}")
+    return shown
+
+
 def _describe(obj: Any) -> dict[str, Any]:
     if inspect.isclass(obj):
+        # A spec also shows what it inherits from the library's base
+        # model, and its fields; not Pydantic's own methods.
+        is_spec = hasattr(obj, "model_fields")
+        owners = (
+            [
+                owner
+                for owner in reversed(obj.__mro__)
+                if owner.__module__.startswith("nebius_serverless")
+            ]
+            if is_spec
+            else [obj]
+        )
         members: dict[str, Any] = {}
-        for name, value in sorted(vars(obj).items()):
-            if name.startswith("_") and name != "__init__":
-                continue
-            if isinstance(value, property):
-                members[name] = "property"
-            elif isinstance(value, (staticmethod, classmethod)):
-                members[name] = _parameters(value.__func__)
-            elif callable(value):
-                members[name] = _parameters(value)
-        return {"kind": "class", "members": members}
+        for owner in owners:
+            for name, value in vars(owner).items():
+                if name.startswith("_") and name != "__init__":
+                    continue
+                if isinstance(value, property):
+                    members[name] = "property"
+                elif isinstance(value, (staticmethod, classmethod)):
+                    members[name] = _parameters(value.__func__)
+                elif callable(value):
+                    members[name] = _parameters(value)
+        described: dict[str, Any] = {
+            "kind": "class",
+            "members": dict(sorted(members.items())),
+        }
+        if is_spec:
+            described["fields"] = _fields(obj)
+        return described
     if inspect.isroutine(obj):
         return {"kind": "function", "parameters": _parameters(obj)}
     # ns.jobs and ns.endpoints: lookup by id.

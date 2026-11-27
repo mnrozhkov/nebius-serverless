@@ -12,13 +12,13 @@ import nebius_serverless as ns
 
     ---
 
-    `JobSpec`, the recipe; `Job`, one Nebius job after create; `ns.jobs`, fetch a job from a saved id.
+    `JobSpec`, what to run, as data; `Job`, one Nebius job, created once with `create()`; `ns.jobs`, fetch a job from a saved id.
 
 -   :material-web: **[Endpoints](endpoints.md)**
 
     ---
 
-    `EndpointSpec`, `Endpoint`, and `ns.endpoints`: long-running containers on a managed URL.
+    `EndpointSpec`, `Endpoint`, and `ns.endpoints`: long-running containers on a managed URL. Created once with `ns.Endpoint(spec).create()`.
 
 -   :material-docker: **[Images](images.md)**
 
@@ -42,7 +42,7 @@ import nebius_serverless as ns
 
     ---
 
-    Each recipe argument's `nebius ai` flag and API field.
+    Each spec field's `nebius ai` flag and API field.
 
 -   :material-alert-circle-outline: **[Errors](errors.md)**
 
@@ -54,7 +54,7 @@ import nebius_serverless as ns
 
 ## Everywhere
 
-Constructing a `JobSpec`, `EndpointSpec`, `Image`, or `Task`, loading YAML, or importing the package does not authenticate, upload, or create. The Nebius SDK is imported on the call that resolves a profile or contacts Nebius.
+Constructing a `JobSpec`, `EndpointSpec`, `Job`, `Endpoint`, `Image`, or `Task`, loading YAML, or importing the package does not authenticate, upload, or create. Only `create()` creates a job or an endpoint. The Nebius SDK is imported on the call that resolves a profile or contacts Nebius.
 
 Logs stay on the CLI: `nebius ai job logs <id>`. This package does not stream them.
 

@@ -67,7 +67,7 @@ class Raising:
 
 def _job(**kwargs: object) -> ns.JobSpec:
     return ns.JobSpec(
-        ["nvidia-smi"],
+        command=["nvidia-smi"],
         image="nvidia/cuda:13.1.1-runtime-ubuntu24.04",
         gpu="h100:8",
         timeout="1h",
@@ -82,7 +82,7 @@ def test_a_quota_failure_names_each_quota(
     error = _error(StatusCode.RESOURCE_EXHAUSTED, quota=True)
     monkeypatch.setattr(SdkTransport, "_client", lambda self: Raising(error))
     with pytest.raises(ns.CapacityError) as caught:
-        _job().create(
+        ns.Job(_job()).create(
             transport=SdkTransport(profile=None), quiet=True, **WHERE
         )
     exc = caught.value
@@ -159,7 +159,7 @@ def test_an_error_record_shows_its_reason(
     monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     fake = FakeTransport()
     fake.get = lambda _id: ERROR_RECORD  # type: ignore[method-assign]
-    job = _job().create(transport=fake, quiet=True, **WHERE)
+    job = ns.Job(_job()).create(transport=fake, quiet=True, **WHERE)
     err = io.StringIO()
     monkeypatch.setattr(sys, "stderr", err)
     job.wait()

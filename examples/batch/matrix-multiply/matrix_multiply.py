@@ -314,7 +314,7 @@ def main() -> None:
     jobs: list[tuple[int, ns.Job]] = []
     for size in SIZES:
         try:
-            job = ns.JobSpec(
+            job = ns.Job(
                 ["python", "-c", WORKER, prefix, str(size)],
                 image=IMAGE,
                 gpu=GPU,

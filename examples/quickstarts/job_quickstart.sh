@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The job from job_quickstart.py as a Nebius CLI command: the output of
-# JobSpec.to_cli() for that recipe, with a fixed --name. A test keeps the
+# ns.Job(spec).to_cli() for that spec, with a fixed --name. A test keeps the
 # two in step.
 set -euo pipefail
 
