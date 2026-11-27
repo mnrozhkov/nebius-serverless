@@ -4,7 +4,7 @@ import pytest
 from fakes import FakeClock, FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless.job import PREEMPTED_CODE
+from nebius_serverless.jobs.job import PREEMPTED_CODE
 
 WHERE = {"region": "eu-north1", "project": "project-test-0001"}
 PREEMPTED = f"ERROR:{PREEMPTED_CODE}"
@@ -13,8 +13,10 @@ PREEMPTED = f"ERROR:{PREEMPTED_CODE}"
 @pytest.fixture(autouse=True)
 def _clock(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = FakeClock()
-    monkeypatch.setattr("nebius_serverless.poll.monotonic", clock.monotonic)
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr(
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
+    )
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
 
 
 def _create(

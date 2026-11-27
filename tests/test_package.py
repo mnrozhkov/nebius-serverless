@@ -5,7 +5,7 @@ import nebius_serverless as ns
 
 def test_version_and_section_10_errors() -> None:
     assert ns.__version__ == "0.1.0"
-    from nebius_serverless.sdk_transport import _USER_AGENT
+    from nebius_serverless.core.sdk_transport import _USER_AGENT
 
     assert _USER_AGENT == f"nebius-serverless/{ns.__version__}"
     assert ns.diagnostics()["version"] == ns.__version__

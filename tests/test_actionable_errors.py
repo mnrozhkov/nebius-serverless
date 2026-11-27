@@ -11,7 +11,10 @@ from nebius.aio.service_error import RequestError, RequestStatusExtended
 from nebius.api.nebius.common.v1 import QuotaFailure, ServiceError
 
 import nebius_serverless as ns
-from nebius_serverless.sdk_transport import SdkEndpointTransport, SdkTransport
+from nebius_serverless.core.sdk_transport import (
+    SdkEndpointTransport,
+    SdkTransport,
+)
 
 SECRET = "env-value-never-shown"
 WHERE = {"region": "eu-north1", "project": "project-test-0001"}
@@ -150,8 +153,10 @@ def test_an_error_record_shows_its_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clock = FakeClock()
-    monkeypatch.setattr("nebius_serverless.poll.monotonic", clock.monotonic)
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr(
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
+    )
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     fake = FakeTransport()
     fake.get = lambda _id: ERROR_RECORD  # type: ignore[method-assign]
     job = _job().create(transport=fake, quiet=True, **WHERE)

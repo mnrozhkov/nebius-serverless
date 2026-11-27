@@ -9,8 +9,8 @@ import pytest
 from fakes import FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless.image import BUILD_SCRIPT, KANIKO, default_name
-from nebius_serverless.image_backend import Registry
+from nebius_serverless.images.image import BUILD_SCRIPT, KANIKO, default_name
+from nebius_serverless.images.registry import Registry
 
 DOCKERFILE = "FROM python:3.12-slim\nRUN pip install requests\n"
 EDITED = DOCKERFILE + "RUN true\n"
@@ -64,7 +64,9 @@ def _location() -> Iterator[None]:
 @pytest.fixture
 def backend(monkeypatch: pytest.MonkeyPatch) -> FakeBackend:
     fake = FakeBackend()
-    monkeypatch.setattr("nebius_serverless.image._backend", lambda: fake)
+    monkeypatch.setattr(
+        "nebius_serverless.images.image._backend", lambda: fake
+    )
     return fake
 
 

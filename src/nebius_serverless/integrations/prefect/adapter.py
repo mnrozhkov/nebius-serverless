@@ -8,8 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from ...errors import ValidationError
-from ...task import Task, start_run
-from ...task_driver import bind, job_tasks
+from ...tasks.driver import Task, bind, job_tasks, start_run
 from .artifacts import show_finished, show_started
 
 _OP = "PrefectFlow"

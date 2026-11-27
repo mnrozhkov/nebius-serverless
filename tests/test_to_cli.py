@@ -8,7 +8,7 @@ import pytest
 from fakes import FakeEndpointTransport, FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless.cli import FLAGS
+from nebius_serverless.core.cli_flags import FLAGS
 
 SECRET = "env-value-never-printed"
 TOKEN = "token-never-printed"

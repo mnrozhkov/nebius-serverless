@@ -17,9 +17,9 @@ def _endpoint(
 ) -> tuple[ns.Endpoint, FakeClock]:
     clock = FakeClock()
     monkeypatch.setattr(
-        "nebius_serverless.poll.monotonic", clock.monotonic
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
     )
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     spec = ns.EndpointSpec(image="vllm/vllm-openai:v0.19.1", port=8000)
     return spec.create(transport=fake, quiet=True, **WHERE), clock
 
@@ -102,8 +102,10 @@ def test_job_wait_accepts_a_duration_too(
     from fakes import FakeTransport
 
     clock = FakeClock()
-    monkeypatch.setattr("nebius_serverless.poll.monotonic", clock.monotonic)
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr(
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
+    )
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     fake = FakeTransport()
     fake.states = ["RUNNING"]
     spec = ns.JobSpec(["true"], image="busybox:1.37", timeout="1h")

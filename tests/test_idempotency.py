@@ -7,8 +7,8 @@ import pytest
 from fakes import FakeEndpointTransport, FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless.sdk_transport import SdkTransport
-from nebius_serverless.transport import CreateResult
+from nebius_serverless.core.sdk_transport import SdkTransport
+from nebius_serverless.core.transport import CreateResult
 
 WHERE = {"region": "eu-north1", "project": "project-test-0001"}
 UNCERTAIN = CreateResult(accepted=True, failure="uncertain")

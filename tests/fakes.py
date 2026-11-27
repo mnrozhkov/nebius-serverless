@@ -3,7 +3,7 @@
 import copy
 from collections.abc import Mapping
 
-from nebius_serverless.transport import CreateResult
+from nebius_serverless.core.transport import CreateResult
 
 
 class FakeTransport:

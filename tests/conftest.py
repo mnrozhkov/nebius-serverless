@@ -22,5 +22,5 @@ def _no_local_nebius_login(
 def _no_create_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:
     """Same-key create retries wait seconds in real use; not in tests."""
     monkeypatch.setattr(
-        "nebius_serverless.transport.pause", lambda _seconds: None
+        "nebius_serverless.core.transport.pause", lambda _seconds: None
     )
