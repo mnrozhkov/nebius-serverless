@@ -1,0 +1,459 @@
+{
+  "AccessError": {
+    "kind": "class",
+    "members": {}
+  },
+  "BuildFailed": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "message:POSITIONAL_OR_KEYWORD",
+        "state:KEYWORD_ONLY=None",
+        "kwargs:VAR_KEYWORD"
+      ]
+    }
+  },
+  "CapacityError": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "message:POSITIONAL_OR_KEYWORD",
+        "violations:KEYWORD_ONLY=()",
+        "kwargs:VAR_KEYWORD"
+      ]
+    }
+  },
+  "Endpoint": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "endpoint_id:POSITIONAL_OR_KEYWORD",
+        "name:KEYWORD_ONLY",
+        "transport:KEYWORD_ONLY",
+        "create_state:KEYWORD_ONLY=None",
+        "record:KEYWORD_ONLY=None",
+        "token:KEYWORD_ONLY=None"
+      ],
+      "delete": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "delete_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "display": [
+        "self:POSITIONAL_OR_KEYWORD"
+      ],
+      "get": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "get_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "id": "property",
+      "name": "property",
+      "record": "property",
+      "reveal_token": [
+        "self:POSITIONAL_OR_KEYWORD"
+      ],
+      "reveal_token_async": [
+        "self:POSITIONAL_OR_KEYWORD"
+      ],
+      "start": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "start_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "status": "property",
+      "stop": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "stop_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "token": "property",
+      "url": "property",
+      "urls": "property",
+      "wait": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "timeout:POSITIONAL_OR_KEYWORD=3600.0",
+        "until:KEYWORD_ONLY='ready'",
+        "probe:KEYWORD_ONLY=None",
+        "token:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "wait_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "timeout:POSITIONAL_OR_KEYWORD=3600.0",
+        "until:KEYWORD_ONLY='ready'",
+        "probe:KEYWORD_ONLY=None",
+        "token:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False"
+      ]
+    }
+  },
+  "EndpointSpec": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "command:POSITIONAL_OR_KEYWORD=None",
+        "image:KEYWORD_ONLY",
+        "port:KEYWORD_ONLY=None",
+        "ports:KEYWORD_ONLY=None",
+        "gpu:KEYWORD_ONLY=None",
+        "cpu:KEYWORD_ONLY=None",
+        "platform:KEYWORD_ONLY=None",
+        "preset:KEYWORD_ONLY=None",
+        "pricing:KEYWORD_ONLY='on-demand'",
+        "auth:KEYWORD_ONLY='token'",
+        "token:KEYWORD_ONLY=None",
+        "subnet_id:KEYWORD_ONLY=None",
+        "volumes:KEYWORD_ONLY=None",
+        "inject_files:KEYWORD_ONLY=None",
+        "env:KEYWORD_ONLY=None",
+        "name:KEYWORD_ONLY=None",
+        "disk:KEYWORD_ONLY=None",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "token_secret:KEYWORD_ONLY=None",
+        "working_dir:KEYWORD_ONLY=None",
+        "secrets:KEYWORD_ONLY=None",
+        "registry_secret:KEYWORD_ONLY=None",
+        "spot_policy:KEYWORD_ONLY=None",
+        "shm:KEYWORD_ONLY=None"
+      ],
+      "create": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "dry_run:POSITIONAL_OR_KEYWORD=False",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "idempotency_key:KEYWORD_ONLY=None"
+      ],
+      "create_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "dry_run:POSITIONAL_OR_KEYWORD=False",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "idempotency_key:KEYWORD_ONLY=None"
+      ],
+      "from_yaml": [
+        "cls:POSITIONAL_OR_KEYWORD",
+        "path:POSITIONAL_OR_KEYWORD"
+      ],
+      "to_cli": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "project:KEYWORD_ONLY=None"
+      ]
+    }
+  },
+  "Error": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "message:POSITIONAL_OR_KEYWORD",
+        "operation:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "key:KEYWORD_ONLY=None",
+        "resource_id:KEYWORD_ONLY=None",
+        "recovery:KEYWORD_ONLY=None",
+        "diff:KEYWORD_ONLY=()",
+        "request_id:KEYWORD_ONLY=None",
+        "trace_id:KEYWORD_ONLY=None",
+        "status_code:KEYWORD_ONLY=None"
+      ]
+    }
+  },
+  "Image": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "dockerfile:POSITIONAL_OR_KEYWORD=None",
+        "dockerfile_string:KEYWORD_ONLY=None"
+      ],
+      "build": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "dry_run:POSITIONAL_OR_KEYWORD=False",
+        "timeout:KEYWORD_ONLY='1h'",
+        "disk:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "transport:KEYWORD_ONLY=None"
+      ],
+      "build_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "dry_run:POSITIONAL_OR_KEYWORD=False",
+        "timeout:KEYWORD_ONLY='1h'",
+        "disk:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "transport:KEYWORD_ONLY=None"
+      ],
+      "tag": "property"
+    }
+  },
+  "Job": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "job_id:POSITIONAL_OR_KEYWORD",
+        "name:KEYWORD_ONLY",
+        "transport:KEYWORD_ONLY",
+        "create_state:KEYWORD_ONLY=None",
+        "record:KEYWORD_ONLY=None",
+        "resubmit:KEYWORD_ONLY=None",
+        "resubmit_budget:KEYWORD_ONLY=0"
+      ],
+      "attempts": "property",
+      "cancel": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "cancel_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "display": [
+        "self:POSITIONAL_OR_KEYWORD"
+      ],
+      "get": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "get_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "id": "property",
+      "name": "property",
+      "preemptions": "property",
+      "record": "property",
+      "status": "property",
+      "wait": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "timeout:POSITIONAL_OR_KEYWORD=None",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "wait_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "timeout:POSITIONAL_OR_KEYWORD=None",
+        "quiet:KEYWORD_ONLY=False"
+      ]
+    }
+  },
+  "JobSpec": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "command:POSITIONAL_OR_KEYWORD",
+        "image:KEYWORD_ONLY",
+        "gpu:KEYWORD_ONLY=None",
+        "cpu:KEYWORD_ONLY=None",
+        "platform:KEYWORD_ONLY=None",
+        "preset:KEYWORD_ONLY=None",
+        "timeout:KEYWORD_ONLY",
+        "pricing:KEYWORD_ONLY='on-demand'",
+        "subnet_id:KEYWORD_ONLY=None",
+        "volumes:KEYWORD_ONLY=None",
+        "inject_files:KEYWORD_ONLY=None",
+        "env:KEYWORD_ONLY=None",
+        "name:KEYWORD_ONLY=None",
+        "disk:KEYWORD_ONLY=None",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "restart_attempts:KEYWORD_ONLY=0",
+        "working_dir:KEYWORD_ONLY=None",
+        "secrets:KEYWORD_ONLY=None",
+        "registry_secret:KEYWORD_ONLY=None",
+        "spot_policy:KEYWORD_ONLY=None",
+        "shm:KEYWORD_ONLY=None"
+      ],
+      "create": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "dry_run:POSITIONAL_OR_KEYWORD=False",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "idempotency_key:KEYWORD_ONLY=None"
+      ],
+      "create_async": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "dry_run:POSITIONAL_OR_KEYWORD=False",
+        "region:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False",
+        "idempotency_key:KEYWORD_ONLY=None"
+      ],
+      "from_yaml": [
+        "cls:POSITIONAL_OR_KEYWORD",
+        "path:POSITIONAL_OR_KEYWORD"
+      ],
+      "to_cli": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "project:KEYWORD_ONLY=None"
+      ]
+    }
+  },
+  "KeyConflict": {
+    "kind": "class",
+    "members": {}
+  },
+  "SubmissionUncertain": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "message:POSITIONAL_OR_KEYWORD",
+        "idempotency_key:KEYWORD_ONLY=None",
+        "kwargs:VAR_KEYWORD"
+      ]
+    }
+  },
+  "Task": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "function:POSITIONAL_OR_KEYWORD=None",
+        "command:KEYWORD_ONLY=None",
+        "inputs:KEYWORD_ONLY=None",
+        "image:KEYWORD_ONLY",
+        "local_libs:KEYWORD_ONLY=()",
+        "name:KEYWORD_ONLY=None",
+        "job_options:VAR_KEYWORD"
+      ],
+      "submit": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "args:VAR_POSITIONAL",
+        "kwargs:VAR_KEYWORD"
+      ]
+    }
+  },
+  "TaskFailed": {
+    "kind": "class",
+    "members": {
+      "__init__": [
+        "self:POSITIONAL_OR_KEYWORD",
+        "message:POSITIONAL_OR_KEYWORD",
+        "state:KEYWORD_ONLY=None",
+        "remote_traceback:KEYWORD_ONLY=None",
+        "exit_code:KEYWORD_ONLY=None",
+        "outputs:KEYWORD_ONLY=None",
+        "kwargs:VAR_KEYWORD"
+      ]
+    }
+  },
+  "TransportError": {
+    "kind": "class",
+    "members": {}
+  },
+  "UnsupportedFeature": {
+    "kind": "class",
+    "members": {}
+  },
+  "ValidationError": {
+    "kind": "class",
+    "members": {}
+  },
+  "WaitTimeout": {
+    "kind": "class",
+    "members": {}
+  },
+  "close": {
+    "kind": "function",
+    "parameters": []
+  },
+  "configure": {
+    "kind": "function",
+    "parameters": [
+      "sdk:KEYWORD_ONLY=None",
+      "credentials_file:KEYWORD_ONLY=None",
+      "profile:KEYWORD_ONLY=None",
+      "project:KEYWORD_ONLY=None",
+      "region:KEYWORD_ONLY=None"
+    ]
+  },
+  "configure_logging": {
+    "kind": "function",
+    "parameters": [
+      "level:KEYWORD_ONLY='INFO'"
+    ]
+  },
+  "diagnostics": {
+    "kind": "function",
+    "parameters": []
+  },
+  "endpoints": {
+    "kind": "lookup",
+    "members": {
+      "get": [
+        "endpoint_id:POSITIONAL_OR_KEYWORD",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "get_async": [
+        "endpoint_id:POSITIONAL_OR_KEYWORD",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False"
+      ]
+    }
+  },
+  "jobs": {
+    "kind": "lookup",
+    "members": {
+      "get": [
+        "job_id:POSITIONAL_OR_KEYWORD",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False"
+      ],
+      "get_async": [
+        "job_id:POSITIONAL_OR_KEYWORD",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None",
+        "transport:KEYWORD_ONLY=None",
+        "quiet:KEYWORD_ONLY=False"
+      ]
+    }
+  },
+  "whoami": {
+    "kind": "function",
+    "parameters": [
+      "profile:KEYWORD_ONLY=None",
+      "project:KEYWORD_ONLY=None",
+      "quiet:KEYWORD_ONLY=False"
+    ]
+  },
+  "whoami_async": {
+    "kind": "function",
+    "parameters": [
+      "profile:KEYWORD_ONLY=None",
+      "project:KEYWORD_ONLY=None",
+      "quiet:KEYWORD_ONLY=False"
+    ]
+  }
+}
