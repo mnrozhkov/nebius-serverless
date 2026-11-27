@@ -22,6 +22,13 @@ An `s3://` string with a fourth `:profile` part raises `UnsupportedFeature`. A s
 !!! tip "Write to local disk, then copy to the bucket"
     Some tools append to files as they run, which the S3 mount does not support. Axolotl's `debug.log` is one. Write outputs to the container's local disk and copy them to the mounted bucket when the command ends, as the [Axolotl examples](../training/axolotl-finetune.md) do.
 
+## The task bucket
+
+Tasks keep their code, arguments, results and files in one bucket: the project's `ns-workspace-<project id>` by default, created on the first run, or a bucket you choose with `bucket=` on the task, `ns.configure(bucket=...)`, or `NS_BUCKET`. A chosen bucket is never created, and the package keeps its files under `ns/` in it. Plain jobs and endpoints do not use it. The details are in [Files and the task bucket](../reference/tasks.md#files-and-the-task-bucket).
+
+!!! warning "Every task job can write the whole bucket"
+    Task jobs mount the whole bucket read-write at `/ns`, so a job can read and overwrite any run in it. Keep data you must protect in another bucket, and mount that one with `volumes`.
+
 ## Disk
 
 `disk` is a CLI size string, passed through, such as `500Gi`. When omitted, the request uses `250Gi`.

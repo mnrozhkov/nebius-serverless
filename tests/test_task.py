@@ -27,7 +27,7 @@ from nebius_serverless.tasks.storage import Bucket
 IMAGE = "python:3.12-slim"
 BUCKET = Bucket(
     id="storagebucket-e00abc",
-    name="generated-tasks-1",
+    name="ns-workspace-1",
     endpoint="https://storage.test",
     region="eu-north1",
 )
@@ -42,22 +42,37 @@ class FakeBackend:
         self.root = root
         self.puts: list[str] = []
         self.created = False
+        # The bucket each run asked for: None is the project default.
+        self.chosen: list[str | None] = []
 
-    def ensure_bucket(self, project: str) -> tuple[Bucket, bool]:
-        return BUCKET, self.created
+    def ensure_bucket(
+        self, project: str, chosen: str | None = None
+    ) -> tuple[Bucket, bool]:
+        self.chosen.append(chosen)
+        if chosen is None:
+            return BUCKET, self.created
+        bucket = Bucket(
+            id=f"storagebucket-{chosen}",
+            name=chosen,
+            endpoint=BUCKET.endpoint,
+            region=BUCKET.region,
+            root=storage_module.chosen_root(),
+            chosen=True,
+        )
+        return bucket, False
 
     def put(self, bucket: Bucket, key: str, data: bytes) -> None:
-        path = self.root / key
+        path = self.root / bucket.key(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        self.puts.append(key)
+        self.puts.append(bucket.key(key))
 
     def get(self, bucket: Bucket, key: str) -> bytes | None:
-        path = self.root / key
+        path = self.root / bucket.key(key)
         return path.read_bytes() if path.is_file() else None
 
     def exists(self, bucket: Bucket, key: str) -> bool:
-        return (self.root / key).is_file()
+        return (self.root / bucket.key(key)).is_file()
 
 
 class RunningTransport(FakeTransport):
@@ -324,6 +339,69 @@ def test_submit_returns_a_run_with_its_inputs_and_folder(
     assert run.result() == 20
     assert run.result() == 20
     assert transport.gets == ["job-1"]
+
+
+def test_a_chosen_bucket_keeps_runs_under_its_prefix(
+    backend: FakeBackend, transport: RunningTransport
+) -> None:
+    ns.configure(
+        project="project-1", region="eu-north1", bucket="santa-cards-course"
+    )
+    run = ns.Task(double, image=IMAGE).submit(4, times=5)
+    assert backend.chosen == ["santa-cards-course"]
+    key = f"ns/tasks/double/{STAMP}"
+    assert run.output_path == f"{runner_module.MOUNT}/{key}/files"
+    assert run.output_uri == f"s3://santa-cards-course/{key}/files/"
+    assert f"{key}/payload.json" in backend.puts
+    spec = transport.bodies[0]["spec"]
+    assert isinstance(spec, dict)
+    assert spec["volumes"][0]["source"] == "storagebucket-santa-cards-course"
+    pointer = next(
+        item
+        for item in spec["injected_files"]
+        if item["container_path"].endswith("pointer.json")
+    )
+    assert f'"run": "{key}"' in pointer["content"].decode()
+    variables = {
+        item["name"]: item["value"] for item in spec["environment_variables"]
+    }
+    assert variables == {
+        "NS_BUCKET": "santa-cards-course",
+        "NS_BUCKET_PREFIX": "ns",
+    }
+    # The job read its payload and wrote its result under the prefix.
+    assert run.result() == 20
+
+
+def test_the_task_bucket_wins_over_configure(
+    backend: FakeBackend, transport: RunningTransport
+) -> None:
+    ns.configure(project="project-1", region="eu-north1", bucket="shared")
+    ns.Task(double, image=IMAGE, bucket="mine").submit(1).result()
+    ns.Task(double, image=IMAGE).submit(1).result()
+    assert backend.chosen == ["mine", "shared"]
+
+
+def test_the_default_bucket_adds_no_job_variables(
+    backend: FakeBackend, transport: RunningTransport
+) -> None:
+    ns.Task(double, image=IMAGE).submit(1).result()
+    spec = transport.bodies[0]["spec"]
+    assert isinstance(spec, dict)
+    assert "environment_variables" not in spec
+    assert backend.chosen == [None]
+
+
+def test_tasks_in_one_pipeline_share_one_bucket(
+    backend: FakeBackend, transport: RunningTransport
+) -> None:
+    first = ns.Task(wrap, image=IMAGE, bucket="one").submit(1)
+    with pytest.raises(ns.ValidationError, match="share one bucket"):
+        ns.Task(unwrap, image=IMAGE, bucket="two").submit(first)
+    with pytest.raises(ns.ValidationError, match="default bucket"):
+        ns.Task(unwrap, image=IMAGE).submit(item=[first])
+    same = ns.Task(unwrap, image=IMAGE, bucket="one").submit(first, extra=1)
+    assert same.result() == 2
 
 
 def test_a_raising_function_fails_with_the_job_traceback(
@@ -721,4 +799,4 @@ def test_a_dropped_run_never_starts(
 
 def test_the_bucket_is_named_after_the_project() -> None:
     name = storage_module.bucket_name("project-e00abc")
-    assert name == "generated-tasks-e00abc"
+    assert name == "ns-workspace-e00abc"

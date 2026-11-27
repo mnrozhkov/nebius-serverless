@@ -77,13 +77,15 @@ class TaskRun:
         scripted: bool,
         backend: SdkTaskBackend,
         project: str,
+        bucket_choice: str | None = None,
     ) -> None:
-        self._begin(task)
+        self._begin(task, bucket_choice)
         self._name = name
         self._job = job
         self._inputs = inputs
-        self._output_path = f"{runtime.MOUNT}/{key}/files"
-        self._output_uri = f"s3://{bucket.name}/{key}/files/"
+        folder = bucket.key(key)
+        self._output_path = f"{runtime.MOUNT}/{folder}/files"
+        self._output_uri = f"s3://{bucket.name}/{folder}/files/"
         self._bucket = bucket
         self._key = key
         self._scripted = scripted
@@ -91,8 +93,10 @@ class TaskRun:
         self._project = project
         self._ready.set()
 
-    def _begin(self, task: str) -> None:
+    def _begin(self, task: str, bucket_choice: str | None) -> None:
         self.task = task
+        # The bucket the user chose for the task, or None for the default.
+        self._bucket_choice = bucket_choice
         # Set once the job exists, or once it is known that it never will.
         self._ready = threading.Event()
         self._error: BaseException | None = None
@@ -100,10 +104,12 @@ class TaskRun:
         self._outcome: tuple[bool, Any] | None = None
 
     @classmethod
-    def _waiting(cls, task: str) -> "TaskRun":
+    def _waiting(
+        cls, task: str, bucket_choice: str | None = None
+    ) -> "TaskRun":
         """A run that has no job yet, because its inputs are not done."""
         run = cls.__new__(cls)
-        run._begin(task)
+        run._begin(task, bucket_choice)
         return run
 
     def _started(self, real: "TaskRun") -> None:

@@ -13,6 +13,7 @@ ns.Task(
     image,
     local_libs=(),
     name=None,
+    bucket=None,
     **job_options,
 )
 ```
@@ -25,9 +26,10 @@ ns.Task(
 | `image` | yes | An [`ns.Image`](images.md), built on the first run and reused after that, or an image reference such as `python:3.12-slim-bookworm`. A function task needs `python3` in the image. |
 | `local_libs` | no | Import names of local packages or modules to send with the task, such as `["mylib"]` or `["mylib.training"]`. |
 | `name` | for a script | The task's name. Defaults to the function's name. Lowercased, with other characters turned into hyphens, at most 40 characters. Each run's job is named `<name>-<UTC time>`. |
+| `bucket` | no | An existing bucket for the task's code, inputs and results, instead of the project's `ns-workspace-<project id>`. Never created. See [Files and the task bucket](#files-and-the-task-bucket). |
 | `**job_options` | no | Options of the job, as on [`JobSpec`](jobs.md#jobspec): `gpu`, `cpu`, `pricing`, `timeout` (default `24h`), `disk`, `volumes`, `env`, `secrets`, `profile`, `project`, and the rest. They are checked here, so a mistake fails at once. `inject_files` is not available: use `local_libs` for code and `volumes` for data. |
 
-Constructing a `Task` does not contact Nebius. After construction these attributes are readable: `name`, `function`, `command`, `inputs`, `image`, `local_libs`.
+Constructing a `Task` does not contact Nebius. After construction these attributes are readable: `name`, `function`, `command`, `inputs`, `image`, `local_libs`, `bucket`.
 
 ### Functions
 
@@ -56,11 +58,36 @@ The script, with its inputs, must be at most 64 KiB. Pass large data as files.
 
 ### Files and the task bucket
 
-Code, arguments, and results travel through a bucket in the project, `generated-tasks-<project>`, which the first run creates. Every task's job mounts it at the same path, `/ns`, so a path one task returns can be opened by another.
+Code, arguments, and results travel through one bucket. Every task's job mounts it at the same path, `/ns`, so a path one task returns can be opened by another.
 
-Each run has its own folder. A task called on its own uses `tasks/<task>/<UTC time>/`; inside a [Prefect flow](../integrations/prefect.md), `flows/<flow>/<run>/<job name>/`. A job can write files to `$NS_OUTPUT_DIR`, the `files/` folder of its run.
+By default it is the project's bucket, `ns-workspace-<project id without "project-">`. The first run creates it with the label `managed-by: nebius-serverless`, which needs rights to manage Object Storage in the project. `ns` matches the package alias, the `/ns` mount and the `NS_*` variables; `workspace` says it is a working area a tool manages, for runs, code archives and caches.
 
-Reading results on your machine uses S3: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or the profile in `~/.aws/credentials` (`AWS_PROFILE`, default `default`). Creating the bucket needs rights to manage Object Storage in the project, otherwise `AccessError`.
+To use a bucket you already have, choose it. The first that is set wins:
+
+1. `bucket=` on the task: `ns.Task(generate, image=..., bucket="santa-cards-course")`.
+2. `ns.configure(bucket="santa-cards-course")` for this process.
+3. The `NS_BUCKET` environment variable, for CI.
+4. Otherwise, the project's bucket.
+
+A chosen bucket must exist: the package never creates it. On first use it writes and reads one small object, `ns/tasks/.access-check`, and raises `AccessError` naming the bucket and the missing right when it cannot. Tasks that pass runs to each other must use the same bucket, because their jobs pass files through one `/ns` mount; otherwise `submit` raises `ValidationError`.
+
+The package writes only under its own folders:
+
+```
+<bucket>/
+├── libs/<hash>.tar.gz           task code archives
+├── tasks/<task>/<run>/          a task called on its own
+└── flows/<flow>/<run>/<job>/    tasks inside a Prefect flow
+```
+
+In a chosen bucket these folders sit under `ns/`, so your own files stay apart: `santa-cards-course/ns/tasks/...`. `ns.configure(prefix="")` puts them at the bucket root, and `prefix="other"` under another folder.
+
+Each run has its own folder, with its payload, its result, and `files/`. A job can write files to `$NS_OUTPUT_DIR`, the `files/` folder of its run. `run.output_uri` is that folder as an `s3://` address.
+
+Reading results on your machine uses S3: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, or the profile in `~/.aws/credentials` (`AWS_PROFILE`, default `default`).
+
+!!! note "Buckets from earlier versions"
+    Before 0.2.0, tasks used a bucket named `generated-tasks-<project id>`. It is left alone. When you no longer need its runs, empty it with an S3 client, then delete it in the web console or with `nebius storage bucket delete`.
 
 ### `Task.__call__`
 

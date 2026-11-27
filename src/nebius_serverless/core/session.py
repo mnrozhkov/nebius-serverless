@@ -34,6 +34,8 @@ class Settings:
     profile: str | None = None
     project: str | None = None
     region: str | None = None
+    bucket: str | None = None
+    prefix: str | None = None
 
 
 _settings = Settings()
@@ -46,8 +48,10 @@ def configure(
     profile: str | None = None,
     project: str | None = None,
     region: str | None = None,
+    bucket: str | None = None,
+    prefix: str | None = None,
 ) -> None:
-    """Set how this process authenticates, and default project/region.
+    """Set how this process authenticates, and its defaults.
 
     - ``sdk``: a ``nebius.sdk.SDK`` you built. It is used as-is and never
       closed by this package.
@@ -57,6 +61,12 @@ def configure(
     - ``project`` / ``region``: defaults for calls that pass none. With
       no CLI profile (an env token or a credentials file), ``project``
       must come from here or from the call.
+    - ``bucket``: an existing bucket for tasks' code, inputs and
+      results, instead of the project's ``ns-workspace-<project id>``.
+      It is never created. A task's own ``bucket=`` wins over it, and
+      it wins over ``NS_BUCKET``.
+    - ``prefix``: the folder the library keeps its files under in a
+      chosen bucket. Defaults to ``ns``; ``""`` uses the bucket root.
 
     Without ``configure``, ``NEBIUS_IAM_TOKEN`` is used when it is set,
     and otherwise the active CLI profile. Each call replaces the previous
@@ -77,6 +87,17 @@ def configure(
                 f"The credentials file {str(path)!r} does not exist.",
                 operation="configure",
             )
+    for value, field in ((bucket, "bucket"), (prefix, "prefix")):
+        if value is not None and not isinstance(value, str):
+            raise ValidationError(
+                f"{field} must be a string.", operation="configure"
+            )
+    if bucket == "":
+        raise ValidationError(
+            "bucket must be a bucket name. Leave it unset for the "
+            "project's default bucket.",
+            operation="configure",
+        )
     close()
     _settings = Settings(
         sdk=sdk,
@@ -84,6 +105,8 @@ def configure(
         profile=profile,
         project=project,
         region=region,
+        bucket=bucket,
+        prefix=None if prefix is None else prefix.strip("/"),
     )
 
 

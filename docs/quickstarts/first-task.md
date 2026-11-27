@@ -21,7 +21,7 @@ uv run python examples/quickstarts/task_quickstart.py
 4. `count.submit(...)` returns a run at once. `top.submit(counts=counts)` gets that run as an argument: its job starts when `counts` has finished, with the result in its place.
 5. `word.result()` waits for the job and returns the result.
 
-The first run creates the bucket `generated-tasks-<project>` in the project. Every task's job mounts it at the same path, and each run keeps its arguments, result, and files in `tasks/<task>/<time>/`.
+The first run creates the bucket `ns-workspace-<project id>` in the project, unless you choose one of your own with `bucket=` ([Files and the task bucket](../reference/tasks.md#files-and-the-task-bucket)). Every task's job mounts it at the same path, and each run keeps its arguments, result, and files in `tasks/<task>/<time>/`.
 
 ## Arguments and results
 

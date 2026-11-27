@@ -4,9 +4,10 @@ A ``Task`` wraps a function or a script. Calling it starts a job,
 waits for it, and returns the result. Constructing a ``Task`` does not
 contact Nebius.
 
-Code and results travel through a bucket in the project,
-``generated-tasks-<project id>``, which the first run creates. Jobs
-mount it; this machine reads and writes it with your S3 credentials.
+Code and results travel through a bucket in the project:
+``ns-workspace-<project id>``, which the first run creates, or a bucket
+you choose with ``bucket=`` or ``ns.configure(bucket=...)``. Jobs mount
+it; this machine reads and writes it with your S3 credentials.
 The bucket is in ``storage``, the code that travels in ``code``, what
 runs in the job in ``runtime``, and a run's handle in ``run``.
 """
@@ -25,7 +26,11 @@ from pathlib import Path
 from typing import Any
 
 from ..core.profile import resolve_location
-from ..core.recipe import INJECT_FILE_MAX_BYTES, validate_image
+from ..core.recipe import (
+    INJECT_FILE_MAX_BYTES,
+    validate_image,
+    validate_optional_text,
+)
 from ..errors import ValidationError
 from ..images.image import Image
 from ..jobs.job import Job
@@ -40,7 +45,7 @@ from .code import (
     validate_libs,
 )
 from .run import TaskRun
-from .storage import Bucket, SdkTaskBackend
+from .storage import Bucket, SdkTaskBackend, bucket_env, chosen_bucket
 from .submit import build_image, plain_options, say, validate_options
 
 _LOG = "nebius_serverless.task"
@@ -77,8 +82,11 @@ class Task:
     then starts when that run has finished, and gets the run's result.
 
     Both kinds can write files to ``$NS_OUTPUT_DIR``. That folder is in
-    the project's task bucket, which every task's job mounts at the same
-    path, so a path one task returns can be opened by another.
+    the task bucket, which every task's job mounts at the same path, so
+    a path one task returns can be opened by another. The bucket is the
+    project's ``ns-workspace-<project id>``, created on the first run,
+    unless you choose one. Tasks that pass runs to each other must use
+    the same bucket.
 
     Reading results on this machine uses your S3 credentials:
     ``AWS_ACCESS_KEY_ID`` and ``AWS_SECRET_ACCESS_KEY``, or the profile
@@ -94,6 +102,11 @@ class Task:
             with the task, such as ``"tasks"`` or ``"tasks.training"``.
         name: The task's name. Defaults to the function's name. Required
             for a script. Each run's job is named ``<name>-<UTC time>``.
+        bucket: An existing bucket for the task's code, inputs and
+            results. It is never created, and is checked for reading and
+            writing on first use. The library's files go under ``ns/``
+            in it. Defaults to ``ns.configure(bucket=...)``, then the
+            ``NS_BUCKET`` variable, then the project's bucket.
         **job_options: Options for the job, as on ``JobSpec``: ``gpu``,
             ``cpu``, ``pricing``, ``timeout`` (default 24h), ``disk``,
             ``volumes``, ``env``, ``secrets`` and the rest.
@@ -128,6 +141,7 @@ class Task:
         image: Image | str,
         local_libs: Sequence[str] = (),
         name: str | None = None,
+        bucket: str | None = None,
         **job_options: Any,
     ) -> None:
         if (function is None) == (command is None):
@@ -139,6 +153,7 @@ class Task:
             image if isinstance(image, Image) else validate_image(image)
         )
         self.local_libs = validate_libs(local_libs)
+        self.bucket = validate_optional_text(bucket, "bucket", operation=_OP)
         self._options = validate_options(job_options)
         self.function = function
         self.command: str | None = None
@@ -236,7 +251,8 @@ class Task:
     ) -> "TaskRun":
         """Return a run now, and start its job when its inputs are done."""
         self._check_names(args, kwargs)
-        run = TaskRun._waiting(self.name)
+        self._check_buckets((args, kwargs))
+        run = TaskRun._waiting(self.name, chosen_bucket(self.bucket))
 
         def start() -> None:
             try:
@@ -338,7 +354,9 @@ class Task:
             region=None,
         )
         backend = storage.backend(options.get("profile"))
-        bucket, created = backend.ensure_bucket(project)
+        bucket, created = backend.ensure_bucket(
+            project, chosen_bucket(self.bucket)
+        )
         if created:
             say(progress, f"Created bucket {bucket.name} ({bucket.id}).")
         image, libs_key = self._prepare(progress, backend, bucket)
@@ -347,13 +365,18 @@ class Task:
         job_name = job_name or f"{self.name}-{run_name}"
         if key is None:
             key = submit.run_key(self.name, run_name, job_name, folder)
-        command, files, payload = self._job_files(bound, key, libs_key)
+        command, files, payload = self._job_files(
+            bound, bucket.key(key), libs_key and bucket.key(libs_key)
+        )
         if payload is not None:
             backend.put(bucket, f"{key}/payload.json", payload)
         volumes = [
             f"{bucket.id}:{runtime.MOUNT}:rw",
             *options.pop("volumes", ()),
         ]
+        # Tasks started inside the job use the same bucket.
+        env = dict(options.get("env") or {})
+        options["env"] = {**bucket_env(bucket), **env}
         with _staged(files) as staged:
             spec = JobSpec(
                 command=command,
@@ -383,6 +406,7 @@ class Task:
             scripted=self.command is not None,
             backend=backend,
             project=project,
+            bucket_choice=chosen_bucket(self.bucket),
         )
 
     def _prepare(
@@ -422,6 +446,7 @@ class Task:
             "inputs": list(self.inputs),
             "parameters": _describe_signature(self.__signature__),
             "options": plain_options(self._options),
+            "bucket": self.bucket,
         }
 
     @classmethod
@@ -439,6 +464,7 @@ class Task:
         task._source = record.get("source")
         task._fixed = True
         task._libs_key = record.get("libs")
+        task.bucket = record.get("bucket")
         task.name = str(record["name"])
         task.__name__ = task.name
         task.__doc__ = record.get("doc")
@@ -446,6 +472,25 @@ class Task:
         task._built = None
         task._build_lock = threading.Lock()
         return task
+
+    def _check_buckets(self, value: object) -> None:
+        """Runs given as arguments must be in this task's bucket: their
+        jobs pass files through one ``/ns`` mount."""
+        mine = chosen_bucket(self.bucket)
+        for run in _runs_in(value):
+            if run._bucket_choice != mine:
+                raise ValidationError(
+                    f"Task {self.name} uses "
+                    f"{_bucket_label(mine)}, but its input from task "
+                    f"{run.task} is in {_bucket_label(run._bucket_choice)}. "
+                    "Tasks that pass runs to each other share one bucket, "
+                    "because their jobs pass files through one /ns mount.",
+                    operation=_OP,
+                    recovery=(
+                        "Give every task the same bucket=, or set it once "
+                        "with ns.configure(bucket=...)."
+                    ),
+                )
 
     def _check_names(
         self, args: tuple[Any, ...], kwargs: dict[str, Any]
@@ -560,6 +605,23 @@ class _Bound:
     args: Sequence[Any]
     kwargs: Mapping[str, Any]
     inputs: dict[str, Any]
+
+
+def _runs_in(value: object) -> list[TaskRun]:
+    """Every run among the arguments, at any depth."""
+    if isinstance(value, TaskRun):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [run for item in value for run in _runs_in(item)]
+    if isinstance(value, dict):
+        return [run for item in value.values() for run in _runs_in(item)]
+    return []
+
+
+def _bucket_label(choice: str | None) -> str:
+    if choice is None:
+        return "the project's default bucket"
+    return f"the bucket {choice}"
 
 
 def _has_runs(value: object) -> bool:

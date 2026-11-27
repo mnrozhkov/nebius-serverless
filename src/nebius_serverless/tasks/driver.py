@@ -211,11 +211,36 @@ class Driver:
             region=None,
         )
 
+    def chosen_bucket(self) -> str | None:
+        """The bucket the pipeline's tasks use. One for all of them:
+        their jobs pass files through one ``/ns`` mount."""
+        choices = {
+            task_storage.chosen_bucket(item.bucket)
+            for item in self.tasks.values()
+        }
+        if len(choices) > 1:
+            names = ", ".join(
+                sorted(name or "the project's default" for name in choices)
+            )
+            raise ValidationError(
+                f"The tasks of {self.name} use different buckets: {names}. "
+                "Tasks in one pipeline share one bucket, because their "
+                "jobs pass files through one /ns mount.",
+                operation=self.operation,
+                recovery=(
+                    "Give every task the same bucket=, or set it once "
+                    "with ns.configure(bucket=...)."
+                ),
+            )
+        return choices.pop() if choices else task_storage.chosen_bucket()
+
     def bucket(self, progress: Progress) -> tuple[Bucket, Any]:
         """The task bucket, and the storage that reads it."""
         project, _ = self.location()
         storage = task_storage.backend(self.options.get("profile"))
-        bucket, created = storage.ensure_bucket(project)
+        bucket, created = storage.ensure_bucket(
+            project, self.chosen_bucket()
+        )
         if created:
             say(progress, f"Created bucket {bucket.name} ({bucket.id}).")
         return bucket, storage
@@ -291,6 +316,7 @@ class Driver:
                 "inputs": [],
                 "parameters": None,
                 "options": {**options, "env": job_env, "secrets": job_secrets},
+                "bucket": self.chosen_bucket(),
             }
         )
         full = {
@@ -325,9 +351,10 @@ class Driver:
 
 def run_paths(launch_folder: str, bucket: Bucket) -> tuple[str, str]:
     """A run's folder in the bucket: as jobs see it, and as ``s3://``."""
+    folder = bucket.key(launch_folder)
     return (
-        f"{runtime.MOUNT}/{launch_folder}",
-        f"s3://{bucket.name}/{launch_folder}/",
+        f"{runtime.MOUNT}/{folder}",
+        f"s3://{bucket.name}/{folder}/",
     )
 
 

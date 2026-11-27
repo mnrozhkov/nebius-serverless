@@ -444,6 +444,7 @@
         "image:KEYWORD_ONLY",
         "local_libs:KEYWORD_ONLY=()",
         "name:KEYWORD_ONLY=None",
+        "bucket:KEYWORD_ONLY=None",
         "job_options:VAR_KEYWORD"
       ],
       "submit": [
@@ -501,7 +502,9 @@
       "credentials_file:KEYWORD_ONLY=None",
       "profile:KEYWORD_ONLY=None",
       "project:KEYWORD_ONLY=None",
-      "region:KEYWORD_ONLY=None"
+      "region:KEYWORD_ONLY=None",
+      "bucket:KEYWORD_ONLY=None",
+      "prefix:KEYWORD_ONLY=None"
     ]
   },
   "configure_logging": {

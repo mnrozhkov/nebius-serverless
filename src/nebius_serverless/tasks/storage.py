@@ -1,5 +1,15 @@
 """The task bucket: found or created with the SDK, and read and written.
 
+The bucket is the project's ``ns-workspace-<project id>`` by default,
+created on first use. A bucket the user chooses, with ``Task(bucket=)``,
+``ns.configure(bucket=)`` or ``NS_BUCKET``, must exist and is never
+created. In a chosen bucket the library keeps its folders under one
+prefix, ``ns/`` by default, so the user's own files stay apart.
+
+Callers pass keys relative to the library's root in the bucket, such
+as ``tasks/train/20261127-152011/payload.json``. The backends add the
+root. ``Bucket.key`` gives the full key, for paths that jobs see.
+
 From this machine the bucket is read and written over S3 with your
 Object Storage credentials. Inside a job it is mounted, and read and
 written as files.
@@ -21,7 +31,22 @@ from typing import Any
 from ..errors import AccessError, TransportError
 from .runtime import MOUNT_ENV
 
-BUCKET_PREFIX = "generated-tasks-"
+# The default bucket's name: this, then the project id without
+# "project-". "ns" matches the package alias, the /ns mount and the NS_*
+# variables; "workspace" says it is a working area a tool manages.
+BUCKET_PREFIX = "ns-workspace-"
+
+# The library's folder in a bucket the user chose.
+CHOSEN_ROOT = "ns"
+
+# Set in task jobs to the chosen bucket and its root, so tasks started
+# inside a job use the same bucket.
+BUCKET_ENV = "NS_BUCKET"
+ROOT_ENV = "NS_BUCKET_PREFIX"
+
+# Written once per process to check that a chosen bucket can be written
+# and read, under the library's own folder.
+ACCESS_CHECK = "tasks/.access-check"
 
 
 BUCKET_LABELS = {"managed-by": "nebius-serverless"}
@@ -30,17 +55,58 @@ BUCKET_LABELS = {"managed-by": "nebius-serverless"}
 _S3_TIMEOUT = 60.0
 
 _lock = threading.Lock()
-_buckets: dict[tuple[int, str, str], "Bucket"] = {}
+_buckets: dict[tuple[int, str, str, str, str], "Bucket"] = {}
 
 
 @dataclass(frozen=True)
 class Bucket:
-    """The project's task bucket: what jobs mount and the client reads."""
+    """The task bucket: what jobs mount and the client reads.
+
+    ``root`` is the library's folder in it: ``""`` in the default
+    bucket, ``"ns"`` in a bucket the user chose.
+    """
 
     id: str
     name: str
     endpoint: str
     region: str
+    root: str = ""
+    chosen: bool = False
+
+    def key(self, path: str) -> str:
+        """The full key of ``path``, a key relative to the root."""
+        path = path.lstrip("/")
+        return f"{self.root}/{path}" if self.root else path
+
+
+def chosen_bucket(task_bucket: str | None = None) -> str | None:
+    """The bucket the user chose, or ``None`` for the project default.
+
+    The task's ``bucket=`` wins, then ``ns.configure(bucket=)``, then
+    ``NS_BUCKET``.
+    """
+    from ..core.session import settings
+
+    for value in (task_bucket, settings().bucket, os.environ.get(BUCKET_ENV)):
+        if value:
+            return value
+    return None
+
+
+def chosen_root() -> str:
+    """The library's folder in a chosen bucket: ``ns`` unless set.
+
+    ``ns.configure(prefix=)`` sets it, or ``NS_BUCKET_PREFIX`` in a
+    job. An empty value puts the folders at the bucket's root.
+    """
+    from ..core.session import settings
+
+    configured = settings().prefix
+    if configured is None:
+        configured = os.environ.get(ROOT_ENV)
+    if configured is None:
+        return CHOSEN_ROOT
+    return configured.strip("/")
 
 
 class SdkTaskBackend:
@@ -49,13 +115,33 @@ class SdkTaskBackend:
     def __init__(self, profile: str | None) -> None:
         self._profile = profile
 
-    def ensure_bucket(self, project: str) -> tuple[Bucket, bool]:
-        """Find the task bucket or create it. ``True`` when created."""
-        cache_key = (os.getpid(), self._profile or "", project)
+    def ensure_bucket(
+        self, project: str, chosen: str | None = None
+    ) -> tuple[Bucket, bool]:
+        """The task bucket. ``True`` when it was created now.
+
+        Without ``chosen``, the project's default bucket, created when
+        missing. A ``chosen`` bucket must exist: it is never created,
+        and on first use it is checked for reading and writing.
+        """
+        root = "" if chosen is None else chosen_root()
+        cache_key = (
+            os.getpid(),
+            self._profile or "",
+            project,
+            chosen or "",
+            root,
+        )
         with _lock:
             found = _buckets.get(cache_key)
         if found is not None:
             return found, False
+        if chosen is not None:
+            bucket = self._existing(project, chosen, root)
+            self._check_access(bucket)
+            with _lock:
+                _buckets[cache_key] = bucket
+            return bucket, False
         from nebius.aio.service_error import RequestError
         from nebius.api.nebius.common.v1 import ResourceMetadata
         from nebius.api.nebius.storage.v1 import (
@@ -104,17 +190,88 @@ class SdkTaskBackend:
             _buckets[cache_key] = bucket
         return bucket, created
 
+    def _existing(self, project: str, name: str, root: str) -> Bucket:
+        """Look up a bucket the user chose. Never creates one."""
+        from nebius.aio.service_error import RequestError
+        from nebius.api.nebius.storage.v1 import (
+            BucketServiceClient,
+            GetBucketByNameRequest,
+        )
+
+        from ..core.session import get_sdk
+
+        sdk: Any = get_sdk(self._profile)
+        client = BucketServiceClient(sdk)
+        lookup = GetBucketByNameRequest(parent_id=project, name=name)
+        try:
+            record = client.get_by_name(lookup).wait()
+        except RequestError as exc:
+            if code_of(exc) == "NOT_FOUND":
+                raise AccessError(
+                    f"The bucket {name} was not found in project "
+                    f"{project}. A bucket you choose must exist; this "
+                    "package never creates it.",
+                    operation="task",
+                    project=project,
+                    recovery=(
+                        "Create the bucket, or check its name in "
+                        "Task(bucket=), ns.configure(bucket=) or NS_BUCKET. "
+                        "Leave all three unset to use the project's "
+                        "default bucket."
+                    ),
+                    status_code="NOT_FOUND",
+                ) from None
+            _raise_bucket(exc, name, project, chosen=True)
+        return Bucket(
+            id=str(record.metadata.id),
+            name=name,
+            endpoint=f"https://{record.status.domain_name}",
+            region=str(record.status.region),
+            root=root,
+            chosen=True,
+        )
+
+    def _check_access(self, bucket: Bucket) -> None:
+        """Write and read one small object, or raise ``AccessError``."""
+        what = f"s3://{bucket.name}/{bucket.key(ACCESS_CHECK)}"
+        try:
+            self.put(bucket, ACCESS_CHECK, b"ok\n")
+        except AccessError:
+            raise AccessError(
+                f"Cannot write to the bucket {bucket.name} ({what}).",
+                operation="task",
+                recovery=(
+                    "Tasks need to write the bucket. Use an Object Storage "
+                    f"access key with write access to {bucket.name}, or "
+                    "choose another bucket."
+                ),
+            ) from None
+        try:
+            data = self.get(bucket, ACCESS_CHECK)
+        except AccessError:
+            data = None
+        if data is None:
+            raise AccessError(
+                f"Cannot read from the bucket {bucket.name} ({what}).",
+                operation="task",
+                recovery=(
+                    "Tasks need to read the bucket. Use an Object Storage "
+                    f"access key with read access to {bucket.name}, or "
+                    "choose another bucket."
+                ),
+            )
+
     def put(self, bucket: Bucket, key: str, data: bytes) -> None:
-        """Write one object."""
-        _s3(bucket, "PUT", key, data)
+        """Write one object. ``key`` is relative to the bucket's root."""
+        _s3(bucket, "PUT", bucket.key(key), data)
 
     def get(self, bucket: Bucket, key: str) -> bytes | None:
         """Read one object, or ``None`` when it does not exist."""
-        return _s3(bucket, "GET", key)
+        return _s3(bucket, "GET", bucket.key(key))
 
     def exists(self, bucket: Bucket, key: str) -> bool:
         """Whether the object exists."""
-        return _s3(bucket, "HEAD", key) is not None
+        return _s3(bucket, "HEAD", bucket.key(key)) is not None
 
 
 class MountedTaskBackend(SdkTaskBackend):
@@ -131,25 +288,34 @@ class MountedTaskBackend(SdkTaskBackend):
 
     def put(self, bucket: Bucket, key: str, data: bytes) -> None:
         """Write one object as a file."""
-        path = self._root / key
+        path = self._root / bucket.key(key)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
 
     def get(self, bucket: Bucket, key: str) -> bytes | None:
         """Read one object, or ``None`` when it does not exist."""
         try:
-            return (self._root / key).read_bytes()
+            return (self._root / bucket.key(key)).read_bytes()
         except (FileNotFoundError, NotADirectoryError):
             return None
 
     def exists(self, bucket: Bucket, key: str) -> bool:
         """Whether the object exists."""
-        return (self._root / key).is_file()
+        return (self._root / bucket.key(key)).is_file()
 
 
 def bucket_name(project: str) -> str:
-    """The task bucket's name: a fixed prefix plus the project id."""
+    """The default bucket's name: ``ns-workspace-`` plus the project id
+    without ``project-``."""
     return BUCKET_PREFIX + project.removeprefix("project-")
+
+
+def bucket_env(bucket: Bucket) -> dict[str, str]:
+    """What a task job needs to use the same bucket: nothing for the
+    default bucket, the name and root for a chosen one."""
+    if not bucket.chosen:
+        return {}
+    return {BUCKET_ENV: bucket.name, ROOT_ENV: bucket.root}
 
 
 def forget_buckets() -> None:
@@ -171,18 +337,33 @@ def code_of(exc: object) -> str:
     return str(getattr(getattr(status, "code", None), "name", "") or "")
 
 
-def _raise_bucket(exc: object, name: str, project: str) -> None:
+def _raise_bucket(
+    exc: object, name: str, project: str, *, chosen: bool = False
+) -> None:
     code = code_of(exc) or None
     if code in {"UNAUTHENTICATED", "PERMISSION_DENIED"}:
+        if chosen:
+            raise AccessError(
+                f"Not allowed to read the bucket {name} in project "
+                f"{project}.",
+                operation="task",
+                project=project,
+                recovery=(
+                    "Ask for read access to the bucket in this project. "
+                    "Run ns.whoami() to see the account in use."
+                ),
+                status_code=code,
+            ) from None
         raise AccessError(
             f"Not allowed to find or create the bucket {name} in "
             f"project {project}.",
             operation="task",
             project=project,
             recovery=(
-                "A task needs rights to manage Object Storage buckets "
-                "in this project. Run ns.whoami() to see the account "
-                "in use."
+                "Creating the project's default bucket needs rights to "
+                "manage Object Storage buckets. Or choose a bucket that "
+                "exists: Task(bucket=...) or ns.configure(bucket=...). "
+                "Run ns.whoami() to see the account in use."
             ),
             status_code=code,
         ) from None

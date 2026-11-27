@@ -22,10 +22,12 @@ Credentials that Nebius rejects raise `AccessError` with the request id and what
 ## `configure`
 
 ```python
-ns.configure(*, sdk=None, credentials_file=None, profile=None, project=None, region=None) -> None
+ns.configure(*, sdk=None, credentials_file=None, profile=None, project=None, region=None, bucket=None, prefix=None) -> None
 ```
 
 Sets how this process authenticates, and the default project and region for calls that pass none. Each call replaces the previous settings; `ns.configure()` with no arguments restores the defaults. Per-call `profile=` and `project=` still win.
+
+`bucket=` names an existing bucket for tasks, instead of the project's `ns-workspace-<project id>`; a task's own `bucket=` still wins, and it wins over `NS_BUCKET`. `prefix=` is the folder the package uses in that bucket, `ns` by default, or `""` for the bucket root. See [Files and the task bucket](tasks.md#files-and-the-task-bucket).
 
 The first source that applies is used:
 
