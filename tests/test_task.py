@@ -14,12 +14,14 @@ import pytest
 from fakes import FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless import task as task_module
-from nebius_serverless import task_runner as runner_module
-from nebius_serverless import task_storage as storage_module
-from nebius_serverless.image import Image
-from nebius_serverless.task_storage import Bucket
-from nebius_serverless.transport import CreateResult
+from nebius_serverless.core.transport import CreateResult
+from nebius_serverless.images.image import Image
+from nebius_serverless.tasks import run as run_module
+from nebius_serverless.tasks import runtime as runner_module
+from nebius_serverless.tasks import storage as storage_module
+from nebius_serverless.tasks import submit as submit_module
+from nebius_serverless.tasks import task as task_module
+from nebius_serverless.tasks.storage import Bucket
 
 IMAGE = "python:3.12-slim"
 BUCKET = Bucket(
@@ -124,13 +126,13 @@ def _setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     ns.configure(project="project-1", region="eu-north1")
     monkeypatch.setattr(runner_module, "MOUNT", str(tmp_path / "bucket"))
     monkeypatch.setattr(runner_module, "LIBS_DIR", str(tmp_path / "libs"))
-    monkeypatch.setattr(task_module, "RESULT_PAUSE", 0.0)
+    monkeypatch.setattr(run_module, "RESULT_PAUSE", 0.0)
     monkeypatch.setattr(
-        runner_module,
+        submit_module,
         "_now",
         lambda: datetime(2026, 11, 24, 15, 39, 22, tzinfo=timezone.utc),
     )
-    runner_module._stamps.clear()
+    submit_module._stamps.clear()
     yield
     ns.configure()
 
@@ -147,7 +149,7 @@ def transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> RunningTransport:
     fake = RunningTransport(tmp_path / "containers")
-    monkeypatch.setattr(task_module, "job_transport", lambda: fake)
+    monkeypatch.setattr(submit_module, "job_transport", lambda: fake)
     return fake
 
 

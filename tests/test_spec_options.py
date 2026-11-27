@@ -7,7 +7,7 @@ import pytest
 from fakes import FakeEndpointTransport, FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless.sdk_transport import (
+from nebius_serverless.core.sdk_transport import (
     build_create_request,
     build_endpoint_request,
 )

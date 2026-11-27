@@ -9,11 +9,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...errors import ValidationError
-from ...image import Image
-from ...output import Progress, call_progress
-from ...recipe import validate_image
-from ...task import TaskRun, say
-from ...task_driver import Driver, Launch, run_paths
+from ...tasks.driver import (
+    Driver,
+    Image,
+    Launch,
+    Progress,
+    TaskRun,
+    call_progress,
+    run_paths,
+    say,
+    validate_image,
+)
 from . import login
 from .adapter import run_flow, run_in_job
 

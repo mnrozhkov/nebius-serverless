@@ -8,7 +8,7 @@ import pytest
 from fakes import FakeClock, FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless.output import _moment
+from nebius_serverless.ui.output import _moment
 
 SECRET = "super-secret-value"
 
@@ -39,8 +39,8 @@ def _run(
 
 def _install_clock(monkeypatch: object, clock: FakeClock) -> None:
     patch = getattr(monkeypatch, "setattr")
-    patch("nebius_serverless.poll.monotonic", clock.monotonic)
-    patch("nebius_serverless.poll.sleep", clock.sleep)
+    patch("nebius_serverless.core.poll.monotonic", clock.monotonic)
+    patch("nebius_serverless.core.poll.sleep", clock.sleep)
 
 
 def test_properties_do_not_fetch() -> None:
@@ -264,14 +264,14 @@ def test_wait_never_sleeps_a_negative_time(monkeypatch: object) -> None:
 
     ticks = itertools.count(0, 0.3)
     patch = getattr(monkeypatch, "setattr")
-    patch("nebius_serverless.poll.monotonic", lambda: next(ticks))
+    patch("nebius_serverless.core.poll.monotonic", lambda: next(ticks))
     pauses: list[float] = []
 
     def real_sleep(seconds: float, _stop: object = None) -> None:
         pauses.append(seconds)
         time.sleep(seconds)  # raises ValueError on a negative pause
 
-    patch("nebius_serverless.poll.sleep", real_sleep)
+    patch("nebius_serverless.core.poll.sleep", real_sleep)
     fake = FakeTransport()
     run = _run(fake, states=["RUNNING"])
     # The deadline passes between the expiry check and the pause.
@@ -283,7 +283,7 @@ def test_wait_never_sleeps_a_negative_time(monkeypatch: object) -> None:
 def test_cancel_returns_when_the_request_is_accepted() -> None:
     from types import SimpleNamespace
 
-    from nebius_serverless.sdk_transport import SdkTransport
+    from nebius_serverless.core.sdk_transport import SdkTransport
 
     class Operation:
         resource_id = "aijob-1"

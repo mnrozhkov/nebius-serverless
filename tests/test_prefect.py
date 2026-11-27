@@ -30,9 +30,7 @@ from test_task import (  # noqa: F401  (fixtures)
 )
 
 import nebius_serverless as ns
-from nebius_serverless import task as task_module
-from nebius_serverless import task_driver as driver_module
-from nebius_serverless.image import Image
+from nebius_serverless.images.image import Image
 from nebius_serverless.integrations.prefect import FlowRun, PrefectFlow
 from nebius_serverless.integrations.prefect import (
     artifacts as artifacts_module,
@@ -40,7 +38,10 @@ from nebius_serverless.integrations.prefect import (
 from nebius_serverless.integrations.prefect import flow as flow_module
 from nebius_serverless.integrations.prefect import login as login_module
 from nebius_serverless.integrations.prefect.adapter import prefect_task
-from nebius_serverless.task import task_from_record, task_record
+from nebius_serverless.tasks import driver as driver_module
+from nebius_serverless.tasks import run as run_module
+from nebius_serverless.tasks import task as task_module
+from nebius_serverless.tasks.submit import task_from_record, task_record
 
 API = "https://prefect.test/api"
 # The real check. The credentials fixture replaces it on the module.
@@ -243,7 +244,8 @@ def test_submit_sends_the_function_the_tasks_and_the_credentials(
     assert libs is not None
     names = tarfile.open(fileobj=io.BytesIO(libs)).getnames()
     assert "nebius_serverless/integrations/prefect/flow.py" in names
-    assert "nebius_serverless/task.py" in names
+    assert "nebius_serverless/tasks/task.py" in names
+    assert "nebius_serverless/tasks/runtime/runner.py" in names
     assert not any(name.endswith(".pyc") for name in names)
 
 
@@ -667,7 +669,7 @@ def test_a_prefect_task_run_shows_its_job_and_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run = ns.Task(double, image=IMAGE).submit(4, times=5)
-    monkeypatch.delenv(task_module.CONSOLE_ENV, raising=False)
+    monkeypatch.delenv(run_module.CONSOLE_ENV, raising=False)
     shown = artifacts_module.job_markdown(run)
     assert "- Job: `job-1`\n" in shown
     assert f"- Name: `double-{STAMP}`" in shown
@@ -675,13 +677,13 @@ def test_a_prefect_task_run_shows_its_job_and_inputs(
     assert f"- Files: `{run.output_uri}`" in shown
     inputs = artifacts_module.values_markdown("Inputs of `double`", run.inputs)
     assert inputs == "### Inputs of `double`\n\n- x: `4`\n- times: `5`"
-    assert task_module.console_url("project-1", "job-1") is None
+    assert run_module.console_url("project-1", "job-1") is None
 
     monkeypatch.setenv(
-        task_module.CONSOLE_ENV, "https://console.test/{project}/jobs/{job}"
+        run_module.CONSOLE_ENV, "https://console.test/{project}/jobs/{job}"
     )
     link = "https://console.test/project-1/jobs/job-1"
-    assert task_module.console_url("project-1", "job-1") == link
+    assert run_module.console_url("project-1", "job-1") == link
     assert f"([open in the console]({link}))" in artifacts_module.job_markdown(
         run
     )

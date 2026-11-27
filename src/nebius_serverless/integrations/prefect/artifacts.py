@@ -10,7 +10,7 @@ the console address of a job, with ``{project}`` and ``{job}`` in it,
 
 import json
 
-from ...task import TaskRun, console_url
+from ...tasks.driver import TaskRun, console_url
 
 # The names of the artifacts a Prefect task run gets.
 JOB_ARTIFACT = "nebius-job"

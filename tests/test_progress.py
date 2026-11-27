@@ -17,9 +17,9 @@ import pytest
 from fakes import FakeClock, FakeTransport
 
 import nebius_serverless as ns
+from nebius_serverless.core.transport import CreateResult, finish_create
 from nebius_serverless.errors import exposed_request_id
-from nebius_serverless.output import _coordinator
-from nebius_serverless.transport import CreateResult, finish_create
+from nebius_serverless.ui.output import _coordinator
 
 SECRET = "super-secret-value"
 MARKER = "payload-marker"
@@ -112,8 +112,10 @@ def _named(job_id: str, states: list[str]) -> FakeTransport:
 
 
 def _clock(monkeypatch: pytest.MonkeyPatch, clock: FakeClock) -> None:
-    monkeypatch.setattr("nebius_serverless.poll.monotonic", clock.monotonic)
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr(
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
+    )
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
 
 
 def _terminal(monkeypatch: pytest.MonkeyPatch, stream: io.StringIO) -> None:
@@ -559,7 +561,7 @@ def test_cancelling_wait_async_prints_nothing_more(
 ) -> None:
     stream = _TTY()
     _terminal(monkeypatch, stream)
-    monkeypatch.setattr("nebius_serverless.poll.monotonic", lambda: 1.0)
+    monkeypatch.setattr("nebius_serverless.core.poll.monotonic", lambda: 1.0)
     started = threading.Event()
     release = threading.Event()
     calls = {"n": 0}
@@ -599,7 +601,7 @@ def test_overlapping_waits_and_a_later_spinner(
     stream = _TTY()
     _terminal(monkeypatch, stream)
     monkeypatch.setattr(
-        "nebius_serverless.poll.sleep", lambda _seconds, _stop=None: None
+        "nebius_serverless.core.poll.sleep", lambda _seconds, _stop=None: None
     )
     barrier = threading.Barrier(2)
 
@@ -942,7 +944,7 @@ import sys
 import time
 
 import nebius_serverless as ns
-from nebius_serverless.transport import CreateResult
+from nebius_serverless.core.transport import CreateResult
 
 mode = sys.argv[1]
 clock = {"now": 0.0}
@@ -953,7 +955,7 @@ def monotonic():
 def sleep(seconds, stop=None):
     clock["now"] += seconds
 
-import nebius_serverless.poll as poll_mod
+import nebius_serverless.core.poll as poll_mod
 poll_mod.monotonic = monotonic
 poll_mod.sleep = sleep
 

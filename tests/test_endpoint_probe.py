@@ -15,8 +15,10 @@ WHERE = {"region": "eu-north1", "project": "project-test-0001"}
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
     clock = FakeClock()
-    monkeypatch.setattr("nebius_serverless.poll.monotonic", clock.monotonic)
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr(
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
+    )
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     return clock
 
 
@@ -47,7 +49,9 @@ def _opener(
             )
         return _Ctx(code)
 
-    monkeypatch.setattr("nebius_serverless.endpoint.open_url", opener)
+    monkeypatch.setattr(
+        "nebius_serverless.endpoints.endpoint.open_url", opener
+    )
     return seen
 
 

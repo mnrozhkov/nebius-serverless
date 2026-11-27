@@ -7,12 +7,20 @@ official Python SDK is https://github.com/nebius/pysdk.
 returns a ``Job`` or an ``Endpoint``: the cloud resource with that id.
 Constructing a recipe does not import the Nebius SDK. The SDK is
 imported on the call that resolves a profile or contacts Nebius.
+
+Supported imports are the names in ``__all__``, plus
+``nebius_serverless.errors``, ``nebius_serverless.tasks.driver`` for
+integrations, and ``nebius_serverless.integrations.<name>``. The other
+modules are implementation: importable, but not a compatibility
+promise.
 """
 
+from . import endpoints, jobs
 from ._version import __version__ as __version__
-from .account import whoami, whoami_async
-from .endpoint import Endpoint, endpoints
-from .endpoint_spec import EndpointSpec
+from .core.account import whoami, whoami_async
+from .core.session import close, configure
+from .endpoints.endpoint import Endpoint
+from .endpoints.spec import EndpointSpec
 from .errors import (
     AccessError,
     BuildFailed,
@@ -26,12 +34,11 @@ from .errors import (
     ValidationError,
     WaitTimeout,
 )
-from .image import Image
-from .job import Job, jobs
-from .job_spec import JobSpec
-from .log import configure_logging, diagnostics
-from .session import close, configure
-from .task import Task
+from .images.image import Image
+from .jobs.job import Job
+from .jobs.spec import JobSpec
+from .tasks.task import Task
+from .ui.log import configure_logging, diagnostics
 
 __all__ = [
     "AccessError",

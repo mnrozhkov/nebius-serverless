@@ -8,7 +8,7 @@ from grpc import StatusCode
 from nebius.aio.service_error import RequestError, RequestStatusExtended
 
 import nebius_serverless as ns
-from nebius_serverless import profile, session
+from nebius_serverless.core import profile, session
 
 TOKEN = "env-token-never-shown"
 USER = {

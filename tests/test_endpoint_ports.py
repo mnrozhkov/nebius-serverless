@@ -6,7 +6,7 @@ import pytest
 from fakes import FakeClock, FakeEndpointTransport
 
 import nebius_serverless as ns
-from nebius_serverless.sdk_transport import build_endpoint_request
+from nebius_serverless.core.sdk_transport import build_endpoint_request
 
 WHERE = {"region": "eu-north1", "project": "project-test-0001"}
 HTTPS = "https://port8000-x.tunnel.example"
@@ -116,8 +116,10 @@ def test_one_http_port_is_fine_with_token_auth() -> None:
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
     clock = FakeClock()
-    monkeypatch.setattr("nebius_serverless.poll.monotonic", clock.monotonic)
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr(
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
+    )
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
     return clock
 
 

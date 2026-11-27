@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 import nebius_serverless as ns
-from nebius_serverless import session
-from nebius_serverless.sdk_transport import (
+from nebius_serverless.core import session
+from nebius_serverless.core.sdk_transport import (
     SdkEndpointTransport,
     SdkTransport,
     project_region,

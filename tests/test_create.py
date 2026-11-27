@@ -6,7 +6,7 @@ import pytest
 from fakes import FakeTransport
 
 import nebius_serverless as ns
-from nebius_serverless.sdk_transport import (
+from nebius_serverless.core.sdk_transport import (
     _result_when_id_known,
     build_create_request,
 )
@@ -210,7 +210,7 @@ def test_explicit_location_skips_the_profile(
     def boom(profile: str | None = None, **kwargs: object) -> tuple[str, str]:
         raise AssertionError(profile)
 
-    monkeypatch.setattr("nebius_serverless.profile.load_profile", boom)
+    monkeypatch.setattr("nebius_serverless.core.profile.load_profile", boom)
     described = _job().create(
         dry_run=True,
         region="eu-north1",
@@ -229,7 +229,7 @@ def test_missing_profile_fails_before_create(
     ) -> tuple[str, str]:
         raise ns.ValidationError("missing", operation="create")
 
-    monkeypatch.setattr("nebius_serverless.profile.load_profile", missing)
+    monkeypatch.setattr("nebius_serverless.core.profile.load_profile", missing)
     fake = FakeTransport()
     with pytest.raises(ns.ValidationError):
         _job().create(transport=fake)
@@ -251,7 +251,7 @@ def test_profile_file_supplies_project_and_region(tmp_path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    from nebius_serverless.profile import load_profile
+    from nebius_serverless.core.profile import load_profile
 
     assert load_profile(config_file=path) == ("project-123", "eu-north1")
     empty = tmp_path / "empty.yaml"
@@ -307,10 +307,10 @@ def test_project_region_fills_a_global_profile(
         assert project_id == "project-123"
         return "eu-north1"
 
-    monkeypatch.setattr("nebius_serverless.session.has_cli_config", _yes)
-    monkeypatch.setattr("nebius_serverless.profile.load_profile", load)
+    monkeypatch.setattr("nebius_serverless.core.session.has_cli_config", _yes)
+    monkeypatch.setattr("nebius_serverless.core.profile.load_profile", load)
     monkeypatch.setattr(
-        "nebius_serverless.sdk_transport.project_region",
+        "nebius_serverless.core.sdk_transport.project_region",
         region,
     )
     described = _job().create(dry_run=True)
@@ -332,10 +332,10 @@ def test_explicit_region_skips_the_project_lookup(
     def region(profile: str | None, project_id: str) -> str:
         raise AssertionError(project_id)
 
-    monkeypatch.setattr("nebius_serverless.session.has_cli_config", _yes)
-    monkeypatch.setattr("nebius_serverless.profile.load_profile", load)
+    monkeypatch.setattr("nebius_serverless.core.session.has_cli_config", _yes)
+    monkeypatch.setattr("nebius_serverless.core.profile.load_profile", load)
     monkeypatch.setattr(
-        "nebius_serverless.sdk_transport.project_region",
+        "nebius_serverless.core.sdk_transport.project_region",
         region,
     )
     described = _job().create(dry_run=True, region="eu-north1")
@@ -344,11 +344,11 @@ def test_explicit_region_skips_the_project_lookup(
 
 
 def test_sdk_request_omits_on_demand_flags() -> None:
-    from nebius_serverless.recipe import request_body
-    from nebius_serverless.sdk_transport import (
+    from nebius_serverless.core.sdk_transport import (
         build_create_request,
         classify_code,
     )
+    from nebius_serverless.jobs.request import request_body
 
     body = request_body(
         command=["nvidia-smi"],
@@ -458,7 +458,7 @@ def test_create_polls_until_the_id_and_stops_before_completion(
 ) -> None:
     slept: list[float] = []
     monkeypatch.setattr(
-        "nebius_serverless.sdk_transport.time.sleep",
+        "nebius_serverless.core.sdk_transport.time.sleep",
         slept.append,
     )
     operation = _Operation("")

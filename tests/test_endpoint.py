@@ -9,7 +9,7 @@ import pytest
 from fakes import FakeClock, FakeEndpointTransport
 
 import nebius_serverless as ns
-from nebius_serverless.sdk_transport import build_endpoint_request
+from nebius_serverless.core.sdk_transport import build_endpoint_request
 
 VLLM = "vllm/vllm-openai:v0.19.1"
 SECRET = "super-secret-value"
@@ -52,9 +52,9 @@ def _spec(body: dict[str, object]) -> dict[str, object]:
 
 def _install_clock(monkeypatch: pytest.MonkeyPatch, clock: FakeClock) -> None:
     monkeypatch.setattr(
-        "nebius_serverless.poll.monotonic", clock.monotonic
+        "nebius_serverless.core.poll.monotonic", clock.monotonic
     )
-    monkeypatch.setattr("nebius_serverless.poll.sleep", clock.sleep)
+    monkeypatch.setattr("nebius_serverless.core.poll.sleep", clock.sleep)
 
 
 # Recipe validation
@@ -666,7 +666,7 @@ class _FakeEndpointClient:
 def test_sdk_endpoint_transport_round_trip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from nebius_serverless.sdk_transport import SdkEndpointTransport
+    from nebius_serverless.core.sdk_transport import SdkEndpointTransport
 
     client = _FakeEndpointClient()
     monkeypatch.setattr(SdkEndpointTransport, "_client", lambda self: client)
@@ -754,7 +754,9 @@ def test_quickstart_stops_on_error_even_with_a_url(
         raise AssertionError("probed the model of an ERROR endpoint")
 
     monkeypatch.setattr(ns.EndpointSpec, "create", create)
-    monkeypatch.setattr("nebius_serverless.endpoint.open_url", no_probe)
+    monkeypatch.setattr(
+        "nebius_serverless.endpoints.endpoint.open_url", no_probe
+    )
     with pytest.raises(SystemExit, match="ended ERROR"):
         module.main()
     assert fake.deletes == ["endpoint-1"]

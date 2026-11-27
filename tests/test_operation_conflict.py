@@ -8,8 +8,8 @@ from grpc import StatusCode
 from nebius.aio.service_error import RequestError, RequestStatusExtended
 
 import nebius_serverless as ns
-from nebius_serverless import sdk_transport
-from nebius_serverless.sdk_transport import SdkEndpointTransport
+from nebius_serverless.core import sdk_transport
+from nebius_serverless.core.sdk_transport import SdkEndpointTransport
 
 ID = "aiendpoint-test-0001"
 
