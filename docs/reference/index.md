@@ -59,3 +59,17 @@ Constructing a `JobSpec`, `EndpointSpec`, `Image`, or `Task`, loading YAML, or i
 Logs stay on the CLI: `nebius ai job logs <id>`. This package does not stream them.
 
 Synchronous methods are the script API. Inside a running event loop they raise `ValidationError` and name the awaited twin (`create_async`, `get_async`, `wait_async`, `cancel_async`, `jobs.get_async`). Cancelling an await does not cancel the cloud job. Only `cancel` / `cancel_async` does.
+
+## Supported imports
+
+These imports are supported, and changes to them are called out in the release notes:
+
+| Import | For |
+| --- | --- |
+| `import nebius_serverless as ns`, and every name in `ns.__all__` | Everyone. `ns.JobSpec`, `ns.Task`, `ns.jobs.get(id)`, and the rest on these pages. |
+| `nebius_serverless.errors` | The same exceptions as `ns.Error` and its subclasses. |
+| `nebius_serverless.integrations.<name>` | An integration, such as `nebius_serverless.integrations.prefect`. |
+| `nebius_serverless.tasks.driver` | Writing an integration: the names in its `__all__`. |
+
+The package is organized by feature: `jobs/`, `endpoints/`, `images/`, `tasks/`, shared code in `core/`, and progress output in `ui/`. Those modules are importable, but they are implementation: a function there is not supported because it can be imported, and it may move or change in any release. `tests/test_boundaries.py` checks which package may import which, and `tests/test_public_api.py` checks that the names above do not change by accident.
+

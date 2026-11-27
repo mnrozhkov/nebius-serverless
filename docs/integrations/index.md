@@ -1,6 +1,6 @@
 # 🔌 Integrations
 
-Run [tasks](../reference/tasks.md) from an orchestrator. Each integration is a subpackage of `nebius_serverless.integrations` with its own extra, and uses only the public API of the package. `import nebius_serverless` does not load any of them.
+Run [tasks](../reference/tasks.md) from an orchestrator. Each integration is a subpackage of `nebius_serverless.integrations` with its own extra. It imports only the package root, `nebius_serverless.errors`, and `nebius_serverless.tasks.driver`, the interface for integrations. `import nebius_serverless` does not load any of them.
 
 <div class="grid cards" markdown>
 
