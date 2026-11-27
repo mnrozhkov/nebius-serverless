@@ -1,5 +1,6 @@
 """ns.Task: inputs, naming, the job request, local_libs, and results."""
 
+import asyncio
 import importlib
 import inspect
 import shutil
@@ -293,6 +294,21 @@ def test_a_function_runs_and_returns_its_value(
     second = transport.bodies[1]["metadata"]
     assert isinstance(second, dict)
     assert second["name"] == f"double-{STAMP}-2"
+
+
+def test_a_task_call_submit_and_result_work_inside_a_running_loop(
+    backend: FakeBackend, transport: RunningTransport
+) -> None:
+    """As in a Jupyter cell: the loop is running in this thread."""
+    task = ns.Task(double, image=IMAGE, timeout="10m")
+
+    async def cell() -> tuple[object, object]:
+        called = task(21)
+        run = task.submit(4, times=5)
+        return called, run.result()
+
+    assert asyncio.run(cell()) == (42, 20)
+    assert len(transport.bodies) == 2
 
 
 def test_submit_returns_a_run_with_its_inputs_and_folder(

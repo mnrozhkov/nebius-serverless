@@ -16,7 +16,7 @@ Import the package as `ns`. Machine selection (`gpu`, `cpu`), pricing, volumes, 
 
 Constructing an `EndpointSpec`, loading YAML, or importing the package does not authenticate, upload, or create. A second `create()` starts another endpoint and returns another `Endpoint`. Each one bills for compute while it runs. A stopped endpoint is not billed for compute or its disk; mounted volumes still bill ([pricing](https://docs.nebius.com/serverless/pricing-quotas)).
 
-Synchronous methods are the script API. Inside a running event loop they raise `ValidationError` and name the awaited twin (`create_async`, `get_async`, `wait_async`, `stop_async`, `start_async`, `delete_async`, `endpoints.get_async`). Cancelling an await does not delete the endpoint. Only `delete` / `delete_async` requests deletion.
+Synchronous methods also work inside a running event loop, such as a Jupyter cell: there they run on a worker thread and block until they end. The awaited twins (`create_async`, `get_async`, `wait_async`, `stop_async`, `start_async`, `delete_async`, `endpoints.get_async`) keep the loop responsive. Cancelling an await does not delete the endpoint. Only `delete` / `delete_async` requests deletion.
 
 This package does not stream endpoint logs. Log access stays on the CLI and the web console.
 

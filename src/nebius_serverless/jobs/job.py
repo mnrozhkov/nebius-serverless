@@ -8,7 +8,6 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, overload
 
 from ..core import poll
-from ..core.loop import reject_running_loop
 from ..core.poll import Timeout, state_of, wait_seconds, wait_until
 from ..core.transport import (
     Transport,
@@ -290,7 +289,6 @@ class Job:
         the project's ``spec.region``. Prints one line once the id is
         known. ``quiet=True`` suppresses it for this call only.
         """
-        reject_running_loop("create_async")
 
         def work(progress: Progress) -> Job:
             return self._create(
@@ -339,7 +337,6 @@ class Job:
         Prints one snapshot. ``quiet=True`` suppresses it for this
         call only and is not stored on the job.
         """
-        reject_running_loop("get_async")
         self._created("get")
 
         def work(progress: Progress) -> dict[str, object]:
@@ -377,7 +374,6 @@ class Job:
         ``preemption_retries``. Progress shows the observation and the
         outcome. ``quiet=True`` suppresses it for this call only.
         """
-        reject_running_loop("wait_async")
         self._created("wait")
 
         def work(progress: Progress) -> dict[str, object]:
@@ -416,7 +412,6 @@ class Job:
         ``CANCELLED``.
         ``quiet=True`` suppresses the acceptance line for this call.
         """
-        reject_running_loop("cancel_async")
         self._created("cancel")
 
         def work(progress: Progress) -> dict[str, object]:

@@ -480,30 +480,29 @@ def test_error_state_progress_says_it_is_not_billed(
 # Async twins
 
 
-def test_sync_calls_inside_a_loop_name_the_twin() -> None:
+def test_sync_calls_inside_a_loop_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_clock(monkeypatch, FakeClock())
     fake = FakeEndpointTransport()
-    service = _create(fake)
 
-    async def inside() -> None:
-        with pytest.raises(ns.ValidationError, match="create_async"):
-            ns.Endpoint(_endpoint()).create(
-                region="eu-north1", project="p", transport=fake
-            )
-        with pytest.raises(ns.ValidationError, match="wait_async"):
-            service.wait()
-        with pytest.raises(ns.ValidationError, match="stop_async"):
-            service.stop()
-        with pytest.raises(ns.ValidationError, match="delete_async"):
-            service.delete()
-        with pytest.raises(
-            ns.ValidationError, match="endpoints.get_async"
-        ):
-            ns.endpoints.get(service.id, transport=fake)
+    async def inside() -> tuple[ns.Endpoint, ns.Endpoint, str | None]:
+        service = ns.Endpoint(_endpoint()).create(
+            region="eu-north1", project="p", transport=fake, quiet=True
+        )
+        assert service.wait(quiet=True)["status"]["state"] == "RUNNING"
+        loaded = ns.endpoints.get(str(service.id), transport=fake)
+        revealed = loaded.reveal_token()
+        service.stop(quiet=True)
+        service.delete(quiet=True)
+        return service, loaded, revealed
 
-    asyncio.run(inside())
+    service, loaded, revealed = asyncio.run(inside())
+    assert service.id == loaded.id == "endpoint-1"
+    assert revealed is not None and revealed == service.token
     assert len(fake.bodies) == 1
-    assert fake.stops == []
-    assert fake.deletes == []
+    assert fake.stops == ["endpoint-1"]
+    assert fake.deletes == ["endpoint-1"]
 
 
 def test_awaited_twins(monkeypatch: pytest.MonkeyPatch) -> None:

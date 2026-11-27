@@ -304,11 +304,14 @@ def test_build_async(backend: FakeBackend, transport: FakeTransport) -> None:
     assert ref == f"{HOST}/e00abc/image:{_tag()}"
 
 
-def test_sync_build_refuses_a_running_loop(backend: FakeBackend) -> None:
+def test_sync_build_works_inside_a_running_loop(
+    backend: FakeBackend, transport: FakeTransport
+) -> None:
     image = ns.Image(dockerfile_string=DOCKERFILE)
 
-    async def main() -> None:
-        with pytest.raises(ns.ValidationError, match="build_async"):
-            image.build()
+    async def main() -> str:
+        return image.build(transport=transport, quiet=True)
 
-    asyncio.run(main())
+    ref = asyncio.run(main())
+    assert ref == f"{HOST}/e00abc/image:{_tag()}"
+    assert len(transport.bodies) == 1

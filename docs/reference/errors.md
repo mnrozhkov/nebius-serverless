@@ -19,7 +19,7 @@ Every error is an `Error`. `UnsupportedFeature` is a `ValidationError`. Exceptio
 
 | Type | When |
 | --- | --- |
-| `ValidationError` | Bad command, image, timeout, machine selector, YAML, a create Nebius rejected (with its code and reason), missing project or region, or a sync call inside a running event loop. |
+| `ValidationError` | Bad command, image, timeout, machine selector, YAML, a create Nebius rejected (with its code and reason), or missing project or region. |
 | `UnsupportedFeature` | Spot on CPU, function YAML, and other commands excluded from this slice. |
 | `AccessError` | Authentication or permission failure from the SDK. |
 | `CapacityError` | The API rejected the job for quota or capacity. |
@@ -40,7 +40,7 @@ The same types as above. The endpoint id is stored on `resource_id` when it is k
 
 | Type | When |
 | --- | --- |
-| `ValidationError` | Bad command, image, port, auth, machine selector, YAML, a create Nebius rejected (with its code and reason), missing project or region, or a sync call inside a running event loop. |
+| `ValidationError` | Bad command, image, port, auth, machine selector, YAML, a create Nebius rejected (with its code and reason), or missing project or region. |
 | `UnsupportedFeature` | Spot on CPU, and the shapes under [Out of scope](endpoints.md#out-of-scope). |
 | `AccessError` | Authentication or permission failure from the SDK. |
 | `CapacityError` | The API rejected the endpoint for quota or capacity. |

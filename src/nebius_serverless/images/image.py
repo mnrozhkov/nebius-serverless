@@ -10,7 +10,6 @@ from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, overload
 
-from ..core.loop import reject_running_loop
 from ..core.profile import resolve_location
 from ..core.recipe import INJECT_FILE_MAX_BYTES
 from ..core.transport import Transport
@@ -206,7 +205,6 @@ class Image:
         it would be reused, and the build job request. ``quiet=True``
         suppresses progress.
         """
-        reject_running_loop("build_async")
 
         def work(progress: Progress) -> str | dict[str, object]:
             return self._build(

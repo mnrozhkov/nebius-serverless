@@ -7,7 +7,6 @@ implementation.
 
 import time
 
-from ..core.loop import reject_running_loop
 from ..core.poll import state_of
 from ..core.records import record_name
 from ..core.transport import Transport
@@ -40,7 +39,6 @@ def get(
     ``to_cli`` and ``create`` raise on it. Prints one snapshot.
     ``quiet=True`` suppresses it for this call.
     """
-    reject_running_loop("get_async")
 
     def work(progress: Progress) -> Job:
         return _get(

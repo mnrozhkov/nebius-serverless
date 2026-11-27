@@ -1,6 +1,6 @@
 # Notebooks
 
-Two notebooks walk through each lifecycle one cell at a time. Jupyter already runs an event loop, so they use the awaited twins (`create_async`, `wait_async`, …): see [Async and notebooks](../guides/async.md).
+Two notebooks walk through each lifecycle one cell at a time. Synchronous calls such as `job.wait()` work in a notebook cell; the notebooks use the awaited twins (`create_async`, `wait_async`, …), which keep the kernel responsive while they wait. See [Async and notebooks](../guides/async.md).
 
 | Notebook | What it does |
 | --- | --- |

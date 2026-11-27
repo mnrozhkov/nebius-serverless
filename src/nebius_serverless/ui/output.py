@@ -16,6 +16,7 @@ from typing import TypeVar
 
 from ..errors import Error, quota_text, recovery_for
 from .log import emit, plain_text, presentation_mode
+from .loop import off_loop
 from .status import Status
 
 SPINNER_AFTER = 0.3
@@ -481,12 +482,17 @@ def call_progress(
 ) -> T:
     """Run ``work`` with a handle, then close that handle.
 
-    For an endpoint call, a default recovery hint is rewritten to name
+    Called from a thread that runs an event loop, ``work`` runs on a
+    worker thread and this call blocks until it ends. Ctrl-C closes the
+    handle, so the worker stops polling at its next check. For an
+    endpoint call, a default recovery hint is rewritten to name
     ``endpoints.get`` before it is shown.
     """
     progress = Progress(quiet=quiet, logger_name=logger_name)
     try:
-        return work(progress)
+        # Inside a running event loop (Jupyter), the work runs on a
+        # worker thread. Closing the handle below stops its polling.
+        return off_loop(lambda: work(progress))
     except Error as exc:
         _retarget(exc, noun)
         if exc.code != "wait_timeout":

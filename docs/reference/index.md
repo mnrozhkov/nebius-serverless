@@ -58,7 +58,7 @@ Constructing a `JobSpec`, `EndpointSpec`, `Job`, `Endpoint`, `Image`, or `Task`,
 
 Logs stay on the CLI: `nebius ai job logs <id>`. This package does not stream them.
 
-Synchronous methods are the script API. Inside a running event loop they raise `ValidationError` and name the awaited twin (`create_async`, `get_async`, `wait_async`, `cancel_async`, `jobs.get_async`). Cancelling an await does not cancel the cloud job. Only `cancel` / `cancel_async` does.
+Synchronous methods also work inside a running event loop, such as a Jupyter cell: there they run on a worker thread and block until they end. The awaited twins (`create_async`, `get_async`, `wait_async`, `cancel_async`, `jobs.get_async`) keep the loop responsive. Cancelling an await does not cancel the cloud job. Only `cancel` / `cancel_async` does.
 
 ## Supported imports
 

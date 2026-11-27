@@ -208,7 +208,7 @@ await job.wait_async(timeout=None, *, quiet=False)
 await job.cancel_async(*, quiet=False)
 ```
 
-Same calls as the synchronous methods, including `quiet`. Cancelling `wait_async` or `get_async` does not cancel the cloud job. Cancelling `wait_async` also stops its progress display and its polling, so `asyncio.run` can return.
+Same calls as the synchronous methods, including `quiet`. The synchronous methods also work inside a running event loop, such as a Jupyter cell: there they run on a worker thread and block until they end. The twins keep the loop responsive. Cancelling `wait_async` or `get_async` does not cancel the cloud job. Cancelling `wait_async` also stops its progress display and its polling, so `asyncio.run` can return.
 
 ## jobs
 

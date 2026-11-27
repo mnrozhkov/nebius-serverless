@@ -7,7 +7,6 @@ modules in this package are implementation.
 
 import time
 
-from ..core.loop import reject_running_loop
 from ..core.poll import state_of
 from ..core.records import record_name
 from ..core.transport import EndpointTransport
@@ -38,7 +37,6 @@ def get(
 
     Does not create. ``token`` on the result is ``None``.
     """
-    reject_running_loop("endpoints.get_async")
 
     def work(progress: Progress) -> Endpoint:
         return _get(

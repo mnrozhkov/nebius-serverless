@@ -11,7 +11,6 @@ from ..errors import (
 )
 from ..ui.output import Progress, call_progress, call_progress_async, report
 from ..ui.status import Status
-from .loop import reject_running_loop
 
 _LOG = "nebius_serverless.account"
 _RECOVERY = (
@@ -42,7 +41,6 @@ def whoami(
     it). Failed authentication raises ``AccessError`` with what to do.
     No token or credential appears in the result or the output.
     """
-    reject_running_loop("whoami_async")
 
     def work(progress: Progress) -> dict[str, object]:
         return _whoami(profile, project, progress)

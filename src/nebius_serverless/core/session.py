@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..errors import ValidationError
+from ..ui.loop import off_loop
 
 TOKEN_ENV = "NEBIUS_IAM_TOKEN"
 CONFIG_FILE = Path("~/.nebius/config.yaml")
@@ -159,7 +160,8 @@ def close() -> None:
         closer = getattr(sdk, "sync_close", None)
         if callable(closer):
             try:
-                closer()
+                # In a running event loop (Jupyter), on a worker thread.
+                off_loop(closer)
             except Exception:  # closing at exit must not raise
                 pass
 

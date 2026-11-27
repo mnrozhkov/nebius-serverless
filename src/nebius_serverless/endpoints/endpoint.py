@@ -9,7 +9,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal, overload
 
 from ..core import poll
-from ..core.loop import reject_running_loop
 from ..core.poll import Timeout, state_of, wait_seconds, wait_until
 from ..core.transport import (
     EndpointTransport,
@@ -18,6 +17,7 @@ from ..core.transport import (
     validate_idempotency_key,
 )
 from ..errors import Error, ValidationError
+from ..ui.loop import off_loop
 from ..ui.output import (
     Progress,
     call_progress,
@@ -368,7 +368,6 @@ class Endpoint:
         is generated and a notice is printed. ``quiet=True`` suppresses
         progress for this call only.
         """
-        reject_running_loop("create_async")
 
         def work(progress: Progress) -> Endpoint:
             return self._create(
@@ -421,9 +420,8 @@ class Endpoint:
         (``token_secret``). One fetch; the value is never logged or
         kept in ``record``.
         """
-        reject_running_loop("reveal_token_async")
         self._created("reveal_token")
-        return self._reveal()
+        return off_loop(self._reveal)
 
     async def reveal_token_async(self) -> str | None:
         """Await the same fetch as ``reveal_token``."""
@@ -443,7 +441,6 @@ class Endpoint:
         ``ERROR`` and ``STOPPED`` are data. ``quiet=True`` suppresses
         the snapshot line for this call only.
         """
-        reject_running_loop("get_async")
 
         self._created("get")
         def work(progress: Progress) -> dict[str, object]:
@@ -502,7 +499,6 @@ class Endpoint:
         limit because the job's own server-side timeout ends it; an
         endpoint has no such deadline.
         """
-        reject_running_loop("wait_async")
 
         self._created("wait")
         def work(progress: Progress) -> dict[str, object]:
@@ -554,7 +550,6 @@ class Endpoint:
         can return on the ``RUNNING`` left over from before the stop.
         The payload does not claim it has stopped.
         """
-        reject_running_loop("stop_async")
 
         self._created("stop")
         def work(progress: Progress) -> dict[str, object]:
@@ -593,7 +588,6 @@ class Endpoint:
         ``Preempted``; ``start`` resumes it. Call ``wait()`` to block
         until it is ``RUNNING`` with its URL again.
         """
-        reject_running_loop("start_async")
 
         self._created("start")
         def work(progress: Progress) -> dict[str, object]:
@@ -630,7 +624,6 @@ class Endpoint:
         The payload does not claim the machine has stopped or that
         billing has ended.
         """
-        reject_running_loop("delete_async")
 
         self._created("delete")
         def work(progress: Progress) -> dict[str, object]:

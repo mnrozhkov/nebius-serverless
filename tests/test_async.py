@@ -1,7 +1,9 @@
-"""Awaited twins and the sync-in-loop guard."""
+"""Awaited twins, and sync calls inside a running event loop."""
 
+import _thread
 import asyncio
 import threading
+import time
 
 import pytest
 from fakes import FakeTransport
@@ -22,16 +24,82 @@ def _job() -> ns.Job:
     return ns.Job(_spec())
 
 
-def test_sync_call_inside_a_loop_names_the_twin() -> None:
-    job = _job()
+def test_a_dry_run_inside_a_loop_matches_one_outside() -> None:
+    spec = _spec().clone(name="same")
+    outside = ns.Job(spec).dry_run(region="eu-north1", project="p")
+
+    async def inside() -> dict[str, object]:
+        return ns.Job(spec).dry_run(region="eu-north1", project="p")
+
+    assert asyncio.run(inside()) == outside
+
+
+def test_sync_calls_inside_a_loop_run_off_the_loop() -> None:
     fake = FakeTransport()
+    fake.states = ["RUNNING", "COMPLETED"]
+    threads: list[str] = []
+    original = fake.get
 
-    async def create() -> None:
-        job.create(region="eu-north1", project="p", transport=fake)
+    def get(job_id: str) -> dict[str, object]:
+        threads.append(threading.current_thread().name)
+        return original(job_id)
 
-    with pytest.raises(ns.ValidationError, match="create_async"):
-        asyncio.run(create())
-    assert fake.bodies == []
+    fake.get = get  # type: ignore[method-assign]
+
+    async def inside() -> tuple[ns.Job, str, str]:
+        job = _job().create(
+            region="eu-north1", project="p", transport=fake, quiet=True
+        )
+        first = job.get(quiet=True)["status"]["state"]  # type: ignore[index]
+        last = job.wait(quiet=True)["status"]["state"]  # type: ignore[index]
+        return job, first, last
+
+    job, first, last = asyncio.run(inside())
+    assert (job.id, first, last) == ("job-1", "RUNNING", "COMPLETED")
+    assert threads and all(name.startswith("ns-sync") for name in threads)
+
+
+def test_ctrl_c_in_a_loop_stops_polling_and_cancels_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A long poll interval: the worker must stop well before it ends.
+    monkeypatch.setattr("nebius_serverless.jobs.job.POLL_SECONDS", 30.0)
+    fake = FakeTransport()
+    fake.states = ["RUNNING"]
+    job = _job().create(
+        region="eu-north1", project="p", transport=fake, quiet=True
+    )
+    original = fake.get
+
+    def get(job_id: str) -> dict[str, object]:
+        record = original(job_id)
+        _thread.interrupt_main()  # Ctrl-C in the waiting thread
+        return record
+
+    fake.get = get  # type: ignore[method-assign]
+
+    async def inside() -> None:
+        job.wait(quiet=True)
+
+    # As in a Jupyter kernel: the loop does not handle SIGINT itself.
+    loop = asyncio.new_event_loop()
+    started = time.monotonic()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            loop.run_until_complete(inside())
+    finally:
+        loop.close()
+    workers = [
+        thread
+        for thread in threading.enumerate()
+        if thread.name.startswith("ns-sync")
+    ]
+    for thread in workers:
+        thread.join(timeout=5)
+    assert not any(thread.is_alive() for thread in workers)
+    assert time.monotonic() - started < 5
+    assert fake.gets == ["job-1"]
+    assert fake.cancels == []
 
 
 def test_awaited_twins_match_the_sync_calls() -> None:
