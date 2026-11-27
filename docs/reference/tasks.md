@@ -114,6 +114,38 @@ best = pick.submit(runs=runs)  # starts when both have finished
 print(best.result())
 ```
 
+### Preemption and checkpoints
+
+A spot job can be preempted. With `preemption_retries=N`, a preempted run is created again, up to `N` times, while a process waits on it (`result()` or a bare call). Each new job is one more attempt of the same run, with the same run id and the same arguments. `preemption_retries` needs `pricing="spot"`.
+
+```python
+train = ns.Task(train_fn, image=IMAGE, gpu="h100", pricing="spot", preemption_retries=2)
+```
+
+Only a confirmed preemption starts another attempt. A function that raises, a script that fails, and a job that ends without a result are never retried. `restart_attempts` is not available on a task, because a container restart runs the function again on the same machine even after it raised; passing it raises `ValidationError`.
+
+**What survives between attempts: only files in `$NS_OUTPUT_DIR`**, the run's shared `files/` folder. Memory, local disk, and the earlier attempt's return value do not: a preempted attempt never returns. The next attempt runs the function from the start. To continue work, save checkpoints to `$NS_OUTPUT_DIR` and load them at the start. `NS_TASK_ATTEMPT` is set in the job: `1`, then `2` after one preemption.
+
+```python
+def train(steps: int) -> dict:
+    import os, shutil, torch
+    ckpt = os.path.join(os.environ["NS_OUTPUT_DIR"], "checkpoint.pt")
+    start = torch.load(ckpt)["step"] if os.path.exists(ckpt) else 0
+    print(f"attempt {os.environ['NS_TASK_ATTEMPT']}, starting at step {start}")
+    for step in range(start, steps):
+        ...
+        if step % 500 == 0:
+            torch.save({"step": step, ...}, "/tmp/ckpt.pt")  # write locally,
+            shutil.copy("/tmp/ckpt.pt", ckpt)                # then copy to the bucket mount
+    return {"loss": ...}
+```
+
+Write the checkpoint locally, then copy it to the mount: the S3 mount does not support appends ([Storage and files](../guides/storage.md)). The [MNIST pipeline](../training/task-pipeline.md) resumes from `checkpoint.pt` this way.
+
+Each result is tagged with its attempt, and `result()` accepts only the latest attempt's. A result that an earlier attempt wrote before it was preempted is never returned. When the last attempt was preempted and no retry is left, `result()` raises `TaskFailed` that names the preemptions and the run id. `run.attempts` lists every attempt with its job id, state, and times: each one is billed.
+
+If no process is waiting when a preemption happens, nothing is resubmitted then. A later `ns.tasks.get(run_id).result()` finds the preemption and starts the next attempt, within the budget left.
+
 ## TaskRun
 
 One run of a task, returned by `submit` and by `ns.tasks.get`. One call of a task is one run. A run has one or more attempts, one Nebius job each: the first, and one more after each preemption.
@@ -131,6 +163,7 @@ One run of a task, returned by `submit` and by `ns.tasks.get`. One call of a tas
 | `inputs` | The inputs by name, with other runs replaced by their results. |
 | `output_path` | The run's files folder as jobs see it, under `/ns`. |
 | `output_uri` | The same folder as an `s3://` address. |
+| `attempts` | The attempts, oldest first: dicts with `n`, `job_id`, `state`, `started_at`, `finished_at`, and `reason` (`"first"` or `"preempted"`). |
 | `started` | Whether the run has a job. A run waiting for its inputs has none yet; `job`, `name`, `inputs`, `output_path`, and `output_uri` then wait for it. |
 
 ## `tasks.get`

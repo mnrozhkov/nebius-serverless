@@ -50,10 +50,11 @@ ns.JobSpec(
 | `disk` | no | CLI size string, passed through, such as `500Gi`. When omitted, the request uses `250Gi`. |
 | `profile` | no | Nebius SDK profile name. When omitted, the active profile is used. |
 | `project` | no | Project id. Overrides the profile's project. |
-| `restart_attempts` | no | Container restarts on the same VM after the command fails, sent as `restart_attempts`. `0` (default) runs once and leaves the field unset. `N` allows up to `N` restarts after the first run. `-1` restarts without limit, like the CLI's `--restart-policy on-failure`. A successful exit is never restarted. Nebius never restarts after preemption, lack of capacity, an unexpected VM stop, a startup failure, or a timeout: the job ends in `ERROR`. For a spot job this client then creates it again while `wait()` runs, up to `restart_attempts` times (10 for `-1`); see [Job.wait](#jobwait). Below `-1`, a bool, or a non-integer raises `ValidationError`. This is not the CLI's global `--retries`, which counts API request retries. |
+| `restart_attempts` | no | Container restarts on the same VM after the command fails, sent as `restart_attempts`. `0` (default) runs once and leaves the field unset. `N` allows up to `N` restarts after the first run. `-1` restarts without limit, like the CLI's `--restart-policy on-failure`. A successful exit is never restarted. Nebius never restarts after preemption, lack of capacity, an unexpected VM stop, a startup failure, or a timeout: the job ends in `ERROR`. For a spot job without `preemption_retries`, this client then creates it again while `wait()` runs, up to `restart_attempts` times (10 for `-1`); see [Spot preemption](#spot-preemption). Below `-1`, a bool, or a non-integer raises `ValidationError`. This is not the CLI's global `--retries`, which counts API request retries. |
 | `working_dir` | no | Container working directory, at most 128 characters. When omitted, the image `WORKDIR` applies. |
 | `secrets` | no | `dict[str, str]` of env name to MysteryBox id: a secret id (`mbsec-…`, latest version) or a version id (`mbsecver-…`). The container gets the payload entry whose key matches the name, or the first entry. Names follow `[A-Za-z_][A-Za-z0-9_]*` and must not repeat an `env` key. Ids are shown in dry-run descriptions; values never reach the client. |
 | `registry_secret` | no | MysteryBox secret version id (`mbsecver-…`) for a private image registry. The payload must have `REGISTRY_USERNAME` and `REGISTRY_PASSWORD`. A secret id (`mbsec-…`) raises `ValidationError`, unlike in `secrets`: the API field is `registry_credentials.mysterybox_secret_version`, so registry credentials are pinned to one version. The CLI resolves a secret name or id to a version for you (`--registry-secret`); this client does not yet. |
+| `preemption_retries` | no | How many times `wait()` creates a preempted spot job again. Spot only: above `0` with on-demand pricing raises `ValidationError`. `None` (default) takes the number from `restart_attempts`. A value here makes `restart_attempts` control container restarts only. Prefer it on spot: see [Spot preemption](#spot-preemption). |
 | `spot_policy` | no | Pricing policy id that caps the spot price. Requires `pricing="spot"`, otherwise `ValidationError`. Sent as `pricing_model.spot_pricing_policy` in place of `follows_spot_price`: the VM is preempted when the spot price exceeds the cap. |
 | `shm` | no | `/dev/shm` size in the `disk` syntax, such as `64Gi`, or `0`. An integer is taken as bytes. When omitted, a GPU machine gets `16Gi` and a CPU machine sends none, matching the CLI's `--shm-size` default. Sent as `shm_size_bytes`. |
 
@@ -178,7 +179,29 @@ Polls `get` about every 10 seconds until `status.state` is terminal, then return
 
 #### Spot preemption
 
-A spot job created by this handle with `restart_attempts` other than `0` is created again when `wait()` sees it end in `ERROR` with `state_details.code` `"Preempted"`. The new job has the same recipe, a new idempotency key, and the name plus `-r2`, `-r3`, …; progress says `preempted; resubmitting (1/2)`. `wait()` then follows the new job, within the same local deadline, and returns its final record. `id` and `name` move to the newest attempt and `attempts` lists every id. The budget is `restart_attempts` resubmits, counted apart from container restarts, and at most 10 for `-1`. Other failures, on-demand jobs, and jobs loaded with `jobs.get` are never resubmitted.
+A spot job created by this handle is created again when `wait()` sees it end in `ERROR` with `state_details.code` `"Preempted"`, while its budget lasts. The new job has the same recipe, a new idempotency key, and the name plus `-r2`, `-r3`, …; progress says `preempted; resubmitting (1/2)`. `wait()` then follows the new job, within the same local deadline, and returns its final record. `id` and `name` move to the newest attempt and `attempts` lists every id. Other failures, on-demand jobs, and jobs loaded with `jobs.get` are never resubmitted.
+
+Two budgets are involved:
+
+| Field | What it retries | Where |
+| --- | --- | --- |
+| `preemption_retries` | A preempted spot job, created again as a new job. | This client, while `wait()` runs. |
+| `restart_attempts` | The container, after the command exits non-zero. | Nebius, on the same VM. |
+
+With `preemption_retries` set, it is the resubmit budget, and `restart_attempts` only restarts failed commands. Without it, `restart_attempts` sets both, at most 10 resubmits for `-1`. That older rule also reruns a command that failed for its own reasons, so on spot set `preemption_retries` and leave `restart_attempts` at `0` unless you want failed commands restarted.
+
+```python
+spec = ns.JobSpec(
+    command=["python", "train.py"],
+    image=IMAGE,
+    gpu="h100",
+    pricing="spot",
+    preemption_retries=2,  # a new job after each of up to 2 preemptions
+    timeout="24h",
+)
+```
+
+Tasks use `preemption_retries` only: see [Preemption and checkpoints](tasks.md#preemption-and-checkpoints).
 
 **This happens only while a process is running `wait()`.** If the notebook or script stops, nothing is resubmitted. Each attempt starts from scratch with the full `timeout`, so save checkpoints to a mounted volume and resume from them ([Storage and files](../guides/storage.md)).
 

@@ -64,6 +64,8 @@ From `examples/tasks/mnist/`, with [Object Storage credentials](../reference/tas
 
 **Files.** A task writes checkpoints to `$NS_OUTPUT_DIR` and returns the path. Every task's job sees the task bucket at the same path, so `evaluate` opens the checkpoint that `train` wrote.
 
+**Spot and preemption.** `train` runs on spot H100 with `preemption_retries=2`. A preempted training job is created again as the next attempt of the same run, and it resumes from `checkpoint.pt`, which survives in the run's `files/` folder. See [Preemption and checkpoints](../reference/tasks.md#preemption-and-checkpoints).
+
 **Prefect.** In the Prefect modes, `train.py` passes the same `pipeline` to `PrefectFlow`, which turns each task call into a Prefect task run with a link to its job. A run's files go to `flows/mnist-baseline/<run>/` in the bucket, one folder per task job.
 
 ## Source

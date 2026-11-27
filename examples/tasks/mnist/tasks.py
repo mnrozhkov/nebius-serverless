@@ -89,6 +89,9 @@ train = ns.Task(
     local_libs=["lib"],
     gpu="h100",
     pricing="spot",
+    # A preempted job is created again, up to twice. Training resumes
+    # from checkpoint.pt in the run's folder.
+    preemption_retries=2,
     timeout="2h",
 )
 

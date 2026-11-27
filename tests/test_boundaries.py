@@ -207,7 +207,7 @@ def test_the_task_runner_runs_without_the_package(tmp_path: Path) -> None:
     )
     assert done.returncode == 0, done.stderr
     result = json.loads((run / "result.json").read_text())
-    assert result == {"ok": True, "value": 5}
+    assert result == {"ok": True, "value": 5, "attempt": 1}
 
 
 def test_importing_the_package_loads_no_integration() -> None:

@@ -37,7 +37,7 @@ spec = ns.JobSpec(
 
 `restart_attempts` restarts the container on the same machine after the command fails: `N` allows up to `N` restarts after the first run, and `-1` restarts without limit. A successful exit is never restarted.
 
-Nebius never restarts after preemption, lack of capacity, an unexpected machine stop, a startup failure, or a timeout: the job ends in `ERROR`. For a spot job with `restart_attempts` set, this client creates the job again when `wait()` sees it preempted, up to `restart_attempts` times (10 for `-1`). See [Spot preemption](../reference/jobs.md#spot-preemption).
+Nebius never restarts after preemption, lack of capacity, an unexpected machine stop, a startup failure, or a timeout: the job ends in `ERROR`. For a spot job, this client creates the job again when `wait()` sees it preempted, up to `preemption_retries` times. Without `preemption_retries`, the number comes from `restart_attempts` (10 for `-1`). See [Spot preemption](../reference/jobs.md#spot-preemption).
 
 !!! warning "Resubmission happens only while `wait()` runs"
     If the script or notebook stops, nothing is resubmitted. Each attempt starts over with the full `timeout`, so save checkpoints to a mounted volume and resume from them.

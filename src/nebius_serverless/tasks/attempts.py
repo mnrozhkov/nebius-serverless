@@ -65,13 +65,45 @@ class Attempts:
         return self._create(name, progress, reason="first", again=True)
 
     def resubmit(
-        self, name: str, _key: str, progress: Progress
+        self,
+        name: str,
+        _key: str,
+        progress: Progress,
+        ended: dict[str, object] | None = None,
     ) -> tuple[str, str | None]:
         """Create the next attempt after a preemption. ``Job.wait`` calls
-        it, up to ``budget`` times."""
+        it, up to ``budget`` times, with the record the preempted job
+        ended with."""
+        if ended is not None:
+            self.ended(ended, write=False)
         job = self._create(name, progress, reason="preempted", again=False)
         assert job.id is not None
         return job.id, job.status
+
+    @property
+    def latest(self) -> int:
+        """The latest attempt's number, from 1."""
+        return len(self.run["attempts"])
+
+    def ended(self, job: dict[str, object], *, write: bool = True) -> None:
+        """Keep the state and times of the attempt whose job this is."""
+        metadata = job.get("metadata")
+        job_id = metadata.get("id") if isinstance(metadata, dict) else None
+        status = job.get("status")
+        status = status if isinstance(status, dict) else {}
+        for item in self.run["attempts"]:
+            if job_id is not None and item["job_id"] != job_id:
+                continue
+            item["state"] = status.get("state")
+            details = status.get("state_details")
+            if isinstance(details, dict) and details.get("code"):
+                item["code"] = details["code"]
+            for field in ("started_at", "finished_at"):
+                if status.get(field):
+                    item[field] = status[field]
+            break
+        if write:
+            record.write(self.backend, self.bucket, self.run)
 
     def attach(self, transport: Transport) -> Job:
         """A handle to the latest attempt's job, which can resubmit."""
@@ -98,10 +130,13 @@ class Attempts:
             f"{self.bucket.id}:{runtime.MOUNT}:rw",
             *(options.pop("volumes", None) or ()),
         ]
-        # The job can find its run, and tasks it starts use this bucket.
+        attempt = self.latest + 1
+        # The job can find its run and attempt, and tasks it starts use
+        # this bucket.
         env = {
             **bucket_env(self.bucket),
             RUN_ENV: self.run_id,
+            runtime.ATTEMPT_ENV: str(attempt),
             **dict(options.pop("env", None) or {}),
         }
         libs = definition.get("libs")
@@ -109,6 +144,7 @@ class Attempts:
             self.payload,
             self.bucket.key(self.run_id),
             libs and self.bucket.key(libs),
+            attempt,
         )
         with self._lock, staged(files) as folder:
             spec = JobSpec(

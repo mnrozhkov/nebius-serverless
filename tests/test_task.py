@@ -369,6 +369,7 @@ def test_a_chosen_bucket_keeps_runs_under_its_prefix(
         "NS_BUCKET": "santa-cards-course",
         "NS_BUCKET_PREFIX": "ns",
         "NS_TASK_RUN": f"tasks/double/{STAMP}",
+        "NS_TASK_ATTEMPT": "1",
     }
     # The job read its payload and wrote its result under the prefix.
     assert run.result() == 20
@@ -383,14 +384,15 @@ def test_the_task_bucket_wins_over_configure(
     assert backend.chosen == ["mine", "shared"]
 
 
-def test_the_default_bucket_adds_only_the_run_variable(
+def test_the_default_bucket_adds_only_the_run_variables(
     backend: FakeBackend, transport: RunningTransport
 ) -> None:
     ns.Task(double, image=IMAGE).submit(1).result()
     spec = transport.bodies[0]["spec"]
     assert isinstance(spec, dict)
     assert spec["environment_variables"] == [
-        {"name": "NS_TASK_RUN", "value": f"tasks/double/{STAMP}"}
+        {"name": "NS_TASK_RUN", "value": f"tasks/double/{STAMP}"},
+        {"name": "NS_TASK_ATTEMPT", "value": "1"},
     ]
     assert backend.chosen == [None]
 

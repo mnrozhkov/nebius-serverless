@@ -35,13 +35,17 @@ class Nebius(RunningTransport):
     """Job ids as Nebius gives them, and ``get`` returns the job's spec.
 
     A create whose number is in ``preempt`` does not run its job: the
-    job ends ``ERROR`` with code ``Preempted``. One in ``idle`` does not
-    run either, and stays in ``states``.
+    job ends ``ERROR`` with code ``Preempted``. One in ``late_preempt``
+    runs, writes its result, and is preempted before it completes. One
+    in ``fail`` ends ``FAILED`` without running. One in ``idle`` does
+    not run, and stays in ``states``.
     """
 
     def __init__(self, folder: Path) -> None:
         super().__init__(folder)
         self.preempt: set[int] = set()
+        self.late_preempt: set[int] = set()
+        self.fail: set[int] = set()
         self.idle: set[int] = set()
         self.base64_files = False
         self.hide_env = False
@@ -50,12 +54,14 @@ class Nebius(RunningTransport):
         self, body: Mapping[str, object], idempotency_key: str = ""
     ) -> CreateResult:
         number = len(self.bodies) + 1
-        self.run = number not in self.preempt | self.idle
+        self.run = number not in self.preempt | self.idle | self.fail
         result = super().create(body, idempotency_key)
         new_id = f"aijob-{result.resource_id}"
         state = self.ended.pop(str(result.resource_id), None)
-        if number in self.preempt:
+        if number in self.preempt | self.late_preempt:
             state = f"ERROR:{PREEMPTED_CODE}"
+        if number in self.fail:
+            state = "FAILED"
         if state is not None:
             self.ended[new_id] = state
         return dataclasses.replace(result, resource_id=new_id)
@@ -308,3 +314,133 @@ def test_a_newer_record_asks_for_an_upgrade(
     with pytest.raises(ns.Error, match="schema version 2") as caught:
         ns.tasks.get(run.id)
     assert "Upgrade" in caught.value.recovery
+
+
+# Preemption: attempts, retries, and results from earlier attempts.
+
+
+def boom(x):
+    raise ValueError(f"bad {x}")
+
+
+def resumes(steps):
+    import json
+    import os
+
+    path = os.path.join(os.environ["NS_OUTPUT_DIR"], "checkpoint.json")
+    start = 0
+    if os.path.exists(path):
+        with open(path) as handle:
+            start = json.load(handle)["step"]
+    with open(path, "w") as handle:
+        json.dump({"step": steps}, handle)
+    return {"attempt": int(os.environ["NS_TASK_ATTEMPT"]), "from": start}
+
+
+def test_a_task_refuses_restart_attempts() -> None:
+    with pytest.raises(ns.ValidationError, match="restart_attempts") as caught:
+        ns.Task(double, image=IMAGE, restart_attempts=1)
+    assert "preemption_retries" in caught.value.recovery
+
+
+def test_the_second_attempt_returns_its_own_value(
+    backend: FakeBackend, nebius: Nebius
+) -> None:
+    nebius.preempt = {1}
+    run = ns.Task(double, image=IMAGE, **SPOT).submit(21)
+    assert run.result() == 42
+    assert [(a["n"], a["job_id"], a["reason"]) for a in run.attempts] == [
+        (1, "aijob-job-1", "first"),
+        (2, "aijob-job-2", "preempted"),
+    ]
+    assert [a["state"] for a in run.attempts] == ["ERROR", "COMPLETED"]
+    record = _record(backend, run.id)
+    assert [a["state"] for a in record["attempts"]] == [  # type: ignore[union-attr]
+        "ERROR",
+        "COMPLETED",
+    ]
+
+
+def test_a_result_from_a_preempted_attempt_is_never_returned(
+    backend: FakeBackend, nebius: Nebius
+) -> None:
+    # Attempt 1 finishes the function and writes ok: true, then is
+    # preempted. Attempt 2 fails before it writes anything.
+    nebius.late_preempt = {1}
+    nebius.fail = {2}
+    run = ns.Task(double, image=IMAGE, **SPOT).submit(5)
+    stale = backend.get(BUCKET, f"{run.id}/result.json")
+    assert stale is not None and json.loads(stale)["ok"] is True
+    with pytest.raises(ns.TaskFailed, match="ended FAILED without a result"):
+        run.result()
+    assert len(nebius.bodies) == 2
+
+
+@needs_bash
+def test_a_script_result_from_a_preempted_attempt_is_never_returned(
+    backend: FakeBackend, nebius: Nebius
+) -> None:
+    hello = ns.Task(
+        name="hello",
+        image=IMAGE,
+        inputs=["who"],
+        command='outputs[greeting]="hello ${inputs[who]}"',
+        **SPOT,
+    )
+    nebius.late_preempt = {1}
+    nebius.fail = {2}
+    with pytest.raises(ns.TaskFailed, match="without a result"):
+        hello(who="a")
+    nebius.late_preempt = {3}
+    nebius.fail = set()
+    assert hello(who="b") == {"greeting": "hello b"}
+
+
+def test_a_raising_function_is_not_retried(
+    backend: FakeBackend, nebius: Nebius
+) -> None:
+    with pytest.raises(ns.TaskFailed, match="raised ValueError"):
+        ns.Task(boom, image=IMAGE, **SPOT)(1)
+    assert len(nebius.bodies) == 1
+
+
+def test_files_survive_and_the_attempt_number_is_set(
+    backend: FakeBackend, nebius: Nebius
+) -> None:
+    nebius.late_preempt = {1}
+    run = ns.Task(resumes, image=IMAGE, **SPOT).submit(500)
+    assert run.result() == {"attempt": 2, "from": 500}
+    variables = [
+        {
+            item["name"]: item["value"]
+            for item in body["spec"]["environment_variables"]  # type: ignore[index]
+        }
+        for body in nebius.bodies
+    ]
+    assert [item["NS_TASK_ATTEMPT"] for item in variables] == ["1", "2"]
+    assert {item["NS_TASK_RUN"] for item in variables} == {run.id}
+
+
+def test_a_used_up_budget_names_the_preemptions_and_the_run(
+    backend: FakeBackend, nebius: Nebius
+) -> None:
+    nebius.preempt = {1, 2}
+    run = ns.Task(double, image=IMAGE, **SPOT).submit(1)
+    with pytest.raises(ns.TaskFailed) as caught:
+        run.result()
+    message = str(caught.value)
+    assert "preempted 2 times" in message
+    assert run.id in message
+    assert "budget (1)" in message
+    assert len(nebius.bodies) == 2
+
+
+def test_without_a_budget_a_preemption_says_how_to_retry(
+    backend: FakeBackend, nebius: Nebius
+) -> None:
+    nebius.preempt = {1}
+    run = ns.Task(double, image=IMAGE, gpu="h100", pricing="spot").submit(1)
+    with pytest.raises(ns.TaskFailed, match="preempted once") as caught:
+        run.result()
+    assert "preemption_retries=N" in caught.value.recovery
+    assert len(nebius.bodies) == 1

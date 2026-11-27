@@ -579,10 +579,14 @@ class Task:
         return dict(bound.arguments)
 
     def _attempt_files(
-        self, payload: bytes, key: str, libs_key: str | None
+        self,
+        payload: bytes,
+        key: str,
+        libs_key: str | None,
+        attempt: int = 1,
     ) -> tuple[list[str], dict[str, bytes]]:
-        """One job's command and injected files. ``key`` and ``libs_key``
-        are full keys in the bucket.
+        """One attempt's command and injected files. ``key`` and
+        ``libs_key`` are full keys in the bucket.
 
         A function's job is given a pointer to its payload with its
         checksum, and refuses a payload that does not match. A script
@@ -590,7 +594,9 @@ class Task:
         """
         if self.command is not None:
             inputs = json.loads(payload)["inputs"]
-            script = runtime.bash_script(self.command, inputs, key, libs_key)
+            script = runtime.bash_script(
+                self.command, inputs, key, libs_key, attempt
+            )
             if len(script.encode()) > INJECT_FILE_MAX_BYTES:
                 raise ValidationError(
                     f"{self.name}'s script and inputs are too large to "
@@ -605,6 +611,7 @@ class Task:
             "root": runtime.MOUNT,
             "run": key,
             "sha256": hashlib.sha256(payload).hexdigest(),
+            "attempt": attempt,
         }
         files = {
             "runner.py": runtime.RUNNER.encode(),

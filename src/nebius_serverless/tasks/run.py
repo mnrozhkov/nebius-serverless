@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..core.poll import Timeout
 from ..errors import Error, TaskFailed, WaitTimeout
-from ..jobs.job import Job
+from ..jobs.job import Job, preempted
 from ..ui.output import Progress, call_progress
 from . import runtime
 from .storage import Bucket, SdkTaskBackend
@@ -188,6 +188,37 @@ class TaskRun:
         return f"s3://{settled._bucket.name}/{folder}/"
 
     @property
+    def attempts(self) -> list[dict[str, Any]]:
+        """The run's attempts, oldest first: one Nebius job each.
+
+        Each is a dict with ``n`` (from 1), ``job_id``, ``state``,
+        ``started_at``, ``finished_at`` and ``reason`` (``"first"`` or
+        ``"preempted"``). Every attempt is billed. A state is ``None``
+        until it is known.
+        """
+        settled = self._settled()
+        if settled._attempts is None:
+            return []
+        items = settled._attempts.run["attempts"]
+        shown = []
+        for index, item in enumerate(items):
+            entry = {
+                field: item.get(field)
+                for field in (
+                    "n",
+                    "job_id",
+                    "state",
+                    "started_at",
+                    "finished_at",
+                    "reason",
+                )
+            }
+            if index == len(items) - 1 and entry["state"] is None:
+                entry["state"] = settled._job.status
+            shown.append(entry)
+        return shown
+
+    @property
     def project(self) -> str:
         """The project the run's job is in."""
         return self._settled()._project
@@ -278,7 +309,11 @@ class TaskRun:
                     f"reconnect with ns.tasks.get({self._key!r})."
                 ),
             ) from exc
+        if self._attempts is not None:
+            self._attempts.ended(record)
         state = _state(record)
+        if preempted(record):
+            return False, self._out_of_retries(state)
         item = "outputs.bin" if self._scripted else "result.json"
         data = self._read(item, tries=RESULT_TRIES if _done(state) else 1)
         if data is None:
@@ -290,13 +325,43 @@ class TaskRun:
         return self._function_outcome(data, state)
 
     def _read(self, item: str, *, tries: int) -> bytes | None:
+        """The latest attempt's result. A result an earlier attempt left
+        behind does not count: that attempt never finished."""
+        latest = 1 if self._attempts is None else self._attempts.latest
         for attempt in range(tries):
             data = self._backend.get(self._bucket, f"{self._key}/{item}")
-            if data is not None:
+            if data is not None and _attempt_of(data) == latest:
                 return data
             if attempt + 1 < tries:
                 time.sleep(RESULT_PAUSE)
         return None
+
+    def _out_of_retries(self, state: str) -> TaskFailed:
+        """The last attempt was preempted, and no retry is left."""
+        count = 1 if self._attempts is None else self._attempts.latest
+        budget = 0 if self._attempts is None else self._attempts.budget
+        times = "once" if count == 1 else f"{count} times"
+        if budget:
+            recovery = (
+                "Start the task again, or allow more with "
+                "preemption_retries=. Files the attempts wrote are kept "
+                f"in {self._output_uri}."
+            )
+        else:
+            recovery = (
+                "Set preemption_retries=N on the task to create a "
+                "preempted spot job again, or use on-demand pricing."
+            )
+        return TaskFailed(
+            f"Task {self.task} run {self._key} was preempted {times}, and "
+            f"its preemption_retries budget ({budget}) is used up "
+            f"(job {self.job.id}).",
+            operation="task",
+            project=self._project,
+            resource_id=self.job.id,
+            state=state,
+            recovery=recovery,
+        )
 
     def _function_outcome(self, data: bytes, state: str) -> tuple[bool, Any]:
         try:
@@ -322,6 +387,8 @@ class TaskRun:
 
     def _script_outcome(self, data: bytes, state: str) -> tuple[bool, Any]:
         parts = data.split(b"\0")
+        if parts[0].startswith(b"attempt="):
+            parts = parts[1:]
         try:
             code = int(parts[0])
         except ValueError:
@@ -347,6 +414,22 @@ class TaskRun:
             recovery=f"See the log: nebius ai job logs {self.job.id}",
             **extra,
         )
+
+
+def _attempt_of(data: bytes) -> int | None:
+    """Which attempt wrote a result: from ``result.json`` or the first
+    field of ``outputs.bin``. A result without one is attempt 1."""
+    if data.startswith(b"attempt="):
+        head = data.split(b"\0", 1)[0].removeprefix(b"attempt=")
+        return int(head) if head.isdigit() else None
+    if data.startswith(b"{"):
+        try:
+            body = json.loads(data)
+        except ValueError:
+            return 1
+        value = body.get("attempt", 1) if isinstance(body, dict) else 1
+        return value if isinstance(value, int) else None
+    return 1
 
 
 def _state(record: dict[str, object]) -> str:

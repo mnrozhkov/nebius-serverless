@@ -32,8 +32,11 @@ from .spec import Duration, JobSpec
 _LOG = "nebius_serverless.job"
 _OP = "Job"
 
-# Creates the job again under a new name and key; returns (id, state).
-Resubmit = Callable[[str, str, Progress], tuple[str, str | None]]
+# Creates the job again under a new name and key, given the record the
+# preempted job ended with; returns (id, state).
+Resubmit = Callable[
+    [str, str, Progress, dict[str, object] | None], tuple[str, str | None]
+]
 
 # state_details.code of a preempted job: the same code Nebius uses for
 # a preempted endpoint.
@@ -511,6 +514,7 @@ class Job:
                 attempt_name: str,
                 attempt_key: str,
                 handle: Progress,
+                _ended: dict[str, object] | None = None,
             ) -> tuple[str, str | None]:
                 body = request.spec_body(spec, where, attempt_name)
                 return _send(chosen, body, attempt_name, attempt_key, handle)
@@ -642,7 +646,9 @@ class Job:
             progress,
         )
         name = f"{self._base_name}-r{attempt}"
-        job_id, state = self._resubmit(name, str(uuid.uuid4()), progress)
+        job_id, state = self._resubmit(
+            name, str(uuid.uuid4()), progress, self._record
+        )
         self._attempts.append(job_id)
         self._id = job_id
         self._name = name

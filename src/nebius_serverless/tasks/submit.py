@@ -103,6 +103,18 @@ def validate_options(options: dict[str, Any]) -> dict[str, Any]:
             "for code, and volumes for data.",
             operation=_OP,
         )
+    if options.get("restart_attempts", 0) != 0:
+        raise ValidationError(
+            "restart_attempts is not available on a task: a container "
+            "restart runs the function again on the same machine, even "
+            "after it raised, and overwrites its result.",
+            operation=_OP,
+            recovery=(
+                "Use preemption_retries=N with pricing='spot' to create a "
+                "preempted job again. A function that raises is never "
+                "retried."
+            ),
+        )
     checked = {"timeout": DEFAULT_TIMEOUT, **options}
     try:
         JobSpec(command=["true"], image="python:3", **checked)

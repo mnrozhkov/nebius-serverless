@@ -50,11 +50,11 @@ nebius ai job logs <job-id>
 - Ask for more GPUs with `gpu="h100:8"`, and match Axolotl's settings to them.
 - Raise shared memory with `shm="64Gi"`.
 - Drop `pricing="spot"` for an on-demand machine that is not preempted.
-- Set `restart_attempts=2` to have `wait()` create the job again after a spot preemption. Each attempt starts over: see [Spot preemption](https://mnrozhkov.github.io/nebius-serverless/reference/jobs/#spot-preemption).
+- Set `preemption_retries=2` to have `wait()` create the job again after a spot preemption. Each attempt starts over: see [Spot preemption](https://mnrozhkov.github.io/nebius-serverless/reference/jobs/#spot-preemption).
 - Train several configs at once: see the [parallel sweep](https://mnrozhkov.github.io/nebius-serverless/training/axolotl-sweep/).
 
 ## Troubleshooting
 
 - **Writes to `debug.log` fail on the bucket.** Axolotl appends to `debug.log` in its `output_dir`, and the S3 mount does not support that. Keep `output_dir: /workspace/output` on the local disk, as `config.yaml` does, and copy the result after training.
-- **The job ends in `ERROR`.** The final `wait()` line and `display()` show the reason in `status.state_details`, for example `NotEnoughResources` or `Preempted`. Try again, switch to on-demand, or set `restart_attempts`.
+- **The job ends in `ERROR`.** The final `wait()` line and `display()` show the reason in `status.state_details`, for example `NotEnoughResources` or `Preempted`. Try again, switch to on-demand, or set `preemption_retries`.
 - **`CapacityError` on create.** The project's quota is too small. The message names the quota, the amount requested, and the limit.

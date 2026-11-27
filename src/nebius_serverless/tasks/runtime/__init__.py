@@ -3,11 +3,16 @@
 A run's folder in the task bucket, as every job sees it under ``MOUNT``::
 
     <run key>/
-        payload.json   a function's code pointer, arguments and libraries
+        run.json       the run record: definition and attempts (record.py)
+        payload.json   a function's code pointer, arguments and libraries,
+                       or a script's inputs
         result.json    a function's outcome: {"ok": true, "value": ...}
-                       or {"ok": false, "error": {...}}
-        outputs.bin    a script's exit code and outputs, NUL-separated
-        files/         the run's own files: $NS_OUTPUT_DIR in the job
+                       or {"ok": false, "error": {...}}, with "attempt"
+        outputs.bin    a script's attempt, exit code and outputs,
+                       NUL-separated
+        files/         the run's own files: $NS_OUTPUT_DIR in the job.
+                       Shared by all attempts, so a checkpoint survives
+                       a preemption
 
 The run key (``submit.run_key``) is ``tasks/<task>/<UTC time>`` for a
 task called on its own, and ``<folder>/<job name>`` for a task started
@@ -48,6 +53,10 @@ LIBS_DIR = "/tmp/ns-libs"
 MOUNT_ENV = "NS_TASK_MOUNT"
 
 
+# Set in a task's job to its attempt number: 1, then 2 after a preemption.
+ATTEMPT_ENV = "NS_TASK_ATTEMPT"
+
+
 # Set in a driver job to the folder of the pipeline's run in the bucket,
 # <pipeline>/<run>. A task started there keeps its files under it.
 FOLDER_ENV = "NS_TASK_FOLDER"
@@ -61,11 +70,12 @@ def bash_script(
     inputs: Mapping[str, Any],
     key: str,
     libs_key: str | None,
+    attempt: int = 1,
 ) -> str:
     """The bash script the job runs: the arrays, a trap, then ``command``.
 
-    The trap writes the exit code and ``outputs`` as NUL-separated text
-    when the script ends, however it ends.
+    The trap writes the attempt, the exit code and ``outputs`` as
+    NUL-separated text when the script ends, however it ends.
     """
     pairs = " ".join(
         f"[{name}]={shlex.quote(_shell_text(value))}"
@@ -78,11 +88,13 @@ def bash_script(
         f"__ns_run={shlex.quote(f'{MOUNT}/{key}')}",
         'export NS_OUTPUT_DIR="$__ns_run/files"',
         f"export {MOUNT_ENV}={shlex.quote(MOUNT)}",
+        f"export {ATTEMPT_ENV}={int(attempt)}",
         "set -e",
         'mkdir -p "$NS_OUTPUT_DIR"',
         "__ns_finish() {",
         "    local code=$? key",
         "    {",
+        f"        printf 'attempt=%s\\0' {int(attempt)}",
         "        printf '%s\\0' \"$code\"",
         '        for key in "${!outputs[@]}"; do',
         '            printf \'%s\\0%s\\0\' "$key" "${outputs[$key]}"',
