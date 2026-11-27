@@ -4,13 +4,17 @@ import json
 import os
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..errors import Error, TaskFailed
+from ..core.poll import Timeout
+from ..errors import Error, TaskFailed, WaitTimeout
 from ..jobs.job import Job
 from ..ui.output import Progress, call_progress
 from . import runtime
 from .storage import Bucket, SdkTaskBackend
+
+if TYPE_CHECKING:
+    from .attempts import Attempts
 
 _LOG = "nebius_serverless.task"
 
@@ -31,10 +35,12 @@ class TaskRun:
     """One run of a task: its job, its inputs, and where its files are.
 
     ``result()`` waits for the job and returns the task's result.
-    ``name`` is the UTC time the task was called, such as
-    ``20261124-153922``. ``output_path`` is the run's file folder as jobs
-    see it, and ``output_uri`` is the same folder as an ``s3://``
-    address.
+    ``id`` is the run id: the run's folder in the bucket, such as
+    ``tasks/train/20261127-152011``. Store it to reconnect later with
+    ``ns.tasks.get(id)``. ``name`` is the UTC time the task was called,
+    such as ``20261124-153922``. ``output_path`` is the run's file
+    folder as jobs see it, and ``output_uri`` is the same folder as an
+    ``s3://`` address.
 
     A run whose task was given other runs as arguments has no job until
     those runs have finished. ``job``, ``name``, ``inputs``,
@@ -53,6 +59,7 @@ class TaskRun:
         "_project",
         "_output_path",
         "_output_uri",
+        "_attempts",
     )
     _name: str
     _job: Job
@@ -64,6 +71,7 @@ class TaskRun:
     _project: str
     _output_path: str
     _output_uri: str
+    _attempts: "Attempts | None"
 
     def __init__(
         self,
@@ -78,6 +86,7 @@ class TaskRun:
         backend: SdkTaskBackend,
         project: str,
         bucket_choice: str | None = None,
+        attempts: "Attempts | None" = None,
     ) -> None:
         self._begin(task, bucket_choice)
         self._name = name
@@ -91,6 +100,7 @@ class TaskRun:
         self._scripted = scripted
         self._backend = backend
         self._project = project
+        self._attempts = attempts
         self._ready.set()
 
     def _begin(self, task: str, bucket_choice: str | None) -> None:
@@ -164,6 +174,20 @@ class TaskRun:
             pass
 
     @property
+    def id(self) -> str:
+        """The run id: the run's folder in the bucket, relative to the
+        library's root. The same across preemptions. Pass it to
+        ``ns.tasks.get`` to reconnect."""
+        return self._settled()._key
+
+    @property
+    def uri(self) -> str:
+        """The run's folder as an ``s3://`` address, for other tools."""
+        settled = self._settled()
+        folder = settled._bucket.key(settled._key)
+        return f"s3://{settled._bucket.name}/{folder}/"
+
+    @property
     def project(self) -> str:
         """The project the run's job is in."""
         return self._settled()._project
@@ -209,7 +233,7 @@ class TaskRun:
             return f"TaskRun({self.task!r}, not started)"
         return f"TaskRun({self.task!r}, {self._name!r}, job={self._job.id!r})"
 
-    def result(self) -> Any:
+    def result(self, timeout: Timeout = None) -> Any:
         """Wait for the job, then return the task's result.
 
         Returns the function's return value, or the script's ``outputs``
@@ -218,13 +242,17 @@ class TaskRun:
         a result, or the run was not started because one of its inputs
         failed. Later calls return or raise the same outcome without
         waiting again.
+
+        ``timeout`` is a local deadline, such as ``"30m"`` or seconds.
+        When it passes, ``WaitTimeout`` is raised with the latest job id
+        and the job keeps running; call ``result()`` again later.
         """
         self._settled()
         with self._lock:
             if self._outcome is None:
 
                 def work(progress: Progress) -> tuple[bool, Any]:
-                    return self._collect(progress)
+                    return self._collect(progress, timeout)
 
                 self._outcome = call_progress(
                     quiet=False, logger_name=_LOG, work=work
@@ -234,8 +262,22 @@ class TaskRun:
             return value
         raise value
 
-    def _collect(self, progress: Progress) -> tuple[bool, Any]:
-        record = self.job._wait(None, progress)
+    def _collect(
+        self, progress: Progress, timeout: Timeout = None
+    ) -> tuple[bool, Any]:
+        try:
+            record = self.job._wait(timeout, progress)
+        except WaitTimeout as exc:
+            raise WaitTimeout(
+                f"Stopped waiting for task {self.task} run {self._key} "
+                f"(job {self.job.id}). The job may still be running.",
+                operation="result",
+                resource_id=self.job.id,
+                recovery=(
+                    "Call result() again to keep waiting, or later "
+                    f"reconnect with ns.tasks.get({self._key!r})."
+                ),
+            ) from exc
         state = _state(record)
         item = "outputs.bin" if self._scripted else "result.json"
         data = self._read(item, tries=RESULT_TRIES if _done(state) else 1)

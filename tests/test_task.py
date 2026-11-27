@@ -46,7 +46,7 @@ class FakeBackend:
         self.chosen: list[str | None] = []
 
     def ensure_bucket(
-        self, project: str, chosen: str | None = None
+        self, project: str, chosen: str | None = None, **_kwargs: object
     ) -> tuple[Bucket, bool]:
         self.chosen.append(chosen)
         if chosen is None:
@@ -368,6 +368,7 @@ def test_a_chosen_bucket_keeps_runs_under_its_prefix(
     assert variables == {
         "NS_BUCKET": "santa-cards-course",
         "NS_BUCKET_PREFIX": "ns",
+        "NS_TASK_RUN": f"tasks/double/{STAMP}",
     }
     # The job read its payload and wrote its result under the prefix.
     assert run.result() == 20
@@ -382,13 +383,15 @@ def test_the_task_bucket_wins_over_configure(
     assert backend.chosen == ["mine", "shared"]
 
 
-def test_the_default_bucket_adds_no_job_variables(
+def test_the_default_bucket_adds_only_the_run_variable(
     backend: FakeBackend, transport: RunningTransport
 ) -> None:
     ns.Task(double, image=IMAGE).submit(1).result()
     spec = transport.bodies[0]["spec"]
     assert isinstance(spec, dict)
-    assert "environment_variables" not in spec
+    assert spec["environment_variables"] == [
+        {"name": "NS_TASK_RUN", "value": f"tasks/double/{STAMP}"}
+    ]
     assert backend.chosen == [None]
 
 

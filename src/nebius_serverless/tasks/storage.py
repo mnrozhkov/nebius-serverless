@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..errors import AccessError, TransportError
+from ..errors import AccessError, Error, TransportError
 from .runtime import MOUNT_ENV
 
 # The default bucket's name: this, then the project id without
@@ -116,15 +116,26 @@ class SdkTaskBackend:
         self._profile = profile
 
     def ensure_bucket(
-        self, project: str, chosen: str | None = None
+        self,
+        project: str,
+        chosen: str | None = None,
+        *,
+        root: str | None = None,
+        find_only: bool = False,
     ) -> tuple[Bucket, bool]:
         """The task bucket. ``True`` when it was created now.
 
         Without ``chosen``, the project's default bucket, created when
         missing. A ``chosen`` bucket must exist: it is never created,
         and on first use it is checked for reading and writing.
+        ``root`` overrides the library's folder in a chosen bucket.
+        ``find_only=True`` only finds the bucket: nothing is created or
+        written, and a missing bucket raises ``Error``.
         """
-        root = "" if chosen is None else chosen_root()
+        if chosen is None:
+            root = ""
+        elif root is None:
+            root = chosen_root()
         cache_key = (
             os.getpid(),
             self._profile or "",
@@ -138,10 +149,15 @@ class SdkTaskBackend:
             return found, False
         if chosen is not None:
             bucket = self._existing(project, chosen, root)
+            if find_only:
+                return bucket, False
             self._check_access(bucket)
             with _lock:
                 _buckets[cache_key] = bucket
             return bucket, False
+        if find_only:
+            name = bucket_name(project)
+            return self._existing(project, name, "", chosen=False), False
         from nebius.aio.service_error import RequestError
         from nebius.api.nebius.common.v1 import ResourceMetadata
         from nebius.api.nebius.storage.v1 import (
@@ -190,8 +206,10 @@ class SdkTaskBackend:
             _buckets[cache_key] = bucket
         return bucket, created
 
-    def _existing(self, project: str, name: str, root: str) -> Bucket:
-        """Look up a bucket the user chose. Never creates one."""
+    def _existing(
+        self, project: str, name: str, root: str, *, chosen: bool = True
+    ) -> Bucket:
+        """Look up a bucket. Never creates one."""
         from nebius.aio.service_error import RequestError
         from nebius.api.nebius.storage.v1 import (
             BucketServiceClient,
@@ -206,6 +224,18 @@ class SdkTaskBackend:
         try:
             record = client.get_by_name(lookup).wait()
         except RequestError as exc:
+            if code_of(exc) == "NOT_FOUND" and not chosen:
+                raise Error(
+                    f"The project's task bucket {name} does not exist in "
+                    f"project {project}, so it holds no task runs.",
+                    operation="task",
+                    project=project,
+                    recovery=(
+                        "Pass bucket= if the run is in a bucket you chose, "
+                        "or project= if it is in another project."
+                    ),
+                    status_code="NOT_FOUND",
+                ) from None
             if code_of(exc) == "NOT_FOUND":
                 raise AccessError(
                     f"The bucket {name} was not found in project "
@@ -228,7 +258,7 @@ class SdkTaskBackend:
             endpoint=f"https://{record.status.domain_name}",
             region=str(record.status.region),
             root=root,
-            chosen=True,
+            chosen=chosen,
         )
 
     def _check_access(self, bucket: Bucket) -> None:

@@ -16,7 +16,7 @@ modules are implementation: importable, but not a compatibility
 promise.
 """
 
-from . import endpoints, jobs
+from . import endpoints, jobs, tasks
 from ._version import __version__ as __version__
 from .core.account import whoami, whoami_async
 from .core.session import close, configure
@@ -65,6 +65,7 @@ __all__ = [
     "diagnostics",
     "endpoints",
     "jobs",
+    "tasks",
     "whoami",
     "whoami_async",
 ]

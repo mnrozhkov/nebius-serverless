@@ -49,6 +49,7 @@ def test_public_surface() -> None:
         "diagnostics",
         "endpoints",
         "jobs",
+        "tasks",
         "whoami",
         "whoami_async",
     ]

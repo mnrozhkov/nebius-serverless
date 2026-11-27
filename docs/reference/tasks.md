@@ -116,13 +116,15 @@ print(best.result())
 
 ## TaskRun
 
-One run of a task, returned by `submit`.
+One run of a task, returned by `submit` and by `ns.tasks.get`. One call of a task is one run. A run has one or more attempts, one Nebius job each: the first, and one more after each preemption.
 
 | Member | Meaning |
 | --- | --- |
-| `result()` | Wait for the job and return the result. Raises `TaskFailed` when the function raised, the script exited non-zero, the job ended without a result, or the run was not started because an input failed. Later calls return or raise the same outcome without waiting. |
+| `result(timeout=None)` | Wait for the job and return the result. Raises `TaskFailed` when the function raised, the script exited non-zero, the job ended without a result, or the run was not started because an input failed. Later calls return or raise the same outcome without waiting. `timeout` is a local deadline, such as `"30m"` or seconds: when it passes, `WaitTimeout` names the latest job id, and the job keeps running. |
 | `cancel()` | Request cancellation of the run's job. A run still waiting for its inputs is dropped and never starts. Never raises. |
-| `job` | The run's [`Job`](jobs.md#job): `job.id`, and the rest. |
+| `id` | The run id: the run's folder in the bucket, such as `tasks/train/20261127-152011`. It stays the same across attempts. Store it to reconnect. |
+| `uri` | The run's folder as an `s3://` address, for other tools. |
+| `job` | The latest attempt's [`Job`](jobs.md#job): `job.id`, and the rest. |
 | `project` | The project the run's job is in. |
 | `name` | The UTC time the run started, such as `20261124-153922`. |
 | `task` | The task's name. |
@@ -130,6 +132,31 @@ One run of a task, returned by `submit`.
 | `output_path` | The run's files folder as jobs see it, under `/ns`. |
 | `output_uri` | The same folder as an `s3://` address. |
 | `started` | Whether the run has a job. A run waiting for its inputs has none yet; `job`, `name`, `inputs`, `output_path`, and `output_uri` then wait for it. |
+
+## `tasks.get`
+
+```python
+ns.tasks.get(run_id, *, bucket=None, profile=None, project=None) -> TaskRun
+```
+
+Reconnect to a run after a kernel restart or a crashed script, and read the result you already paid for:
+
+```python
+run = train.submit(epochs=3)
+run_id = run.id  # "tasks/train/20261127-152011": store this
+
+# later, in another process
+run = ns.tasks.get(run_id)
+value = run.result(timeout="30m")
+```
+
+`run_id` is a run id, or the job id (`aijob-...`) of any of the run's attempts. **Store the run id**: it is the run's identity and works without a job read. A job id identifies one attempt; it is accepted because it is what progress output and the console show.
+
+`ns.tasks.get` never starts or resubmits a job. The run it returns follows the latest attempt. When `result()` finds that attempt was preempted and the run's `preemption_retries` budget is not used up, it starts the next attempt.
+
+`bucket=` is the bucket the run is in when you chose one, with the same defaults as `Task(bucket=)`. A job id finds its bucket and project from the job. Only one process should wait on a run: two processes waiting on the same preempted run can both start a new attempt.
+
+Each run keeps a record next to its files, `<run id>/run.json`: the task's definition (image, libraries, the function's import name or source, job options), and its attempts with their job ids. The arguments stay in `payload.json`. Runs from before run records existed cannot be reattached.
 
 ## Errors
 

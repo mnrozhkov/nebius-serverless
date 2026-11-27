@@ -16,13 +16,10 @@ import hashlib
 import inspect
 import json
 import re
-import tempfile
 import textwrap
 import threading
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from ..core.profile import resolve_location
@@ -33,10 +30,9 @@ from ..core.recipe import (
 )
 from ..errors import ValidationError
 from ..images.image import Image
-from ..jobs.job import Job
-from ..jobs.spec import JobSpec
 from ..ui.output import Progress, call_progress
-from . import runtime, storage, submit
+from . import record, runtime, storage, submit
+from .attempts import Attempts
 from .code import (
     covered,
     function_source,
@@ -45,7 +41,7 @@ from .code import (
     validate_libs,
 )
 from .run import TaskRun
-from .storage import Bucket, SdkTaskBackend, bucket_env, chosen_bucket
+from .storage import Bucket, SdkTaskBackend, chosen_bucket
 from .submit import build_image, plain_options, say, validate_options
 
 _LOG = "nebius_serverless.task"
@@ -347,7 +343,7 @@ class Task:
         run's folder in the bucket. ``folder`` is the pipeline run's
         folder that the run's own folder goes in."""
         bound = self._bind(args, kwargs)
-        options = dict(self._options)
+        options = self._options
         project, region = resolve_location(
             profile=options.get("profile"),
             project=options.get("project"),
@@ -365,37 +361,31 @@ class Task:
         job_name = job_name or f"{self.name}-{run_name}"
         if key is None:
             key = submit.run_key(self.name, run_name, job_name, folder)
-        command, files, payload = self._job_files(
-            bound, bucket.key(key), libs_key and bucket.key(libs_key)
+        payload = self._payload(bound, libs_key and bucket.key(libs_key))
+        backend.put(bucket, f"{key}/payload.json", payload)
+        definition = self._definition(image, libs_key)
+        run = record.new(
+            run_id=key,
+            task=self.name,
+            name=run_name,
+            project=project,
+            bucket=bucket,
+            scripted=self.command is not None,
+            definition=definition,
+            preemption_retries=0,
         )
-        if payload is not None:
-            backend.put(bucket, f"{key}/payload.json", payload)
-        volumes = [
-            f"{bucket.id}:{runtime.MOUNT}:rw",
-            *options.pop("volumes", ()),
-        ]
-        # Tasks started inside the job use the same bucket.
-        env = dict(options.get("env") or {})
-        options["env"] = {**bucket_env(bucket), **env}
-        with _staged(files) as staged:
-            spec = JobSpec(
-                command=command,
-                image=image,
-                name=job_name,
-                volumes=volumes,
-                inject_files=[
-                    f"{staged / item}:{runtime.JOB_DIR}/{item}"
-                    for item in files
-                ],
-                **options,
-            )
-            job = Job(spec)._create(
-                region=region,
-                project=project,
-                transport=submit.job_transport(),
-                progress=progress,
-                idempotency_key=None,
-            )
+        attempts = Attempts(
+            task=self,
+            run=run,
+            backend=backend,
+            bucket=bucket,
+            payload=payload,
+            region=region,
+        )
+        run["preemption_retries"] = attempts.budget
+        # The record exists before the first job does.
+        record.write(backend, bucket, run)
+        job = attempts.first(job_name, progress)
         return TaskRun(
             task=self.name,
             name=run_name,
@@ -407,6 +397,7 @@ class Task:
             backend=backend,
             project=project,
             bucket_choice=chosen_bucket(self.bucket),
+            attempts=attempts,
         )
 
     def _prepare(
@@ -434,6 +425,10 @@ class Task:
         and Dockerfile are not present. ``_from_record`` reverses it.
         """
         image, libs_key = self._prepare(progress, backend, bucket)
+        return self._definition(image, libs_key)
+
+    def _definition(self, image: str, libs_key: str | None) -> dict[str, Any]:
+        """The task as JSON, once its image and libraries are ready."""
         return {
             "name": self.name,
             "doc": self.__doc__,
@@ -551,31 +546,16 @@ class Task:
             self._built = (tag, ref)
             return ref
 
-    def _job_files(
-        self, bound: "_Bound", key: str, libs_key: str | None
-    ) -> tuple[list[str], dict[str, bytes], bytes | None]:
-        """The job's command, its injected files, and its payload.
+    def _payload(self, bound: "_Bound", libs_key: str | None) -> bytes:
+        """What one call runs with, for ``payload.json``.
 
-        A function's payload goes to the bucket, so its size is not
-        limited. The job is given a pointer to it with its checksum,
-        and refuses a payload that does not match.
+        A function's code pointer, arguments and libraries, or a
+        script's inputs. ``libs_key`` is the archive's full key. The
+        payload goes to the bucket, so its size is not limited.
         """
         if self.command is not None:
-            script = runtime.bash_script(
-                self.command, bound.inputs, key, libs_key
-            )
-            if len(script.encode()) > INJECT_FILE_MAX_BYTES:
-                raise ValidationError(
-                    f"{self.name}'s script and inputs are too large to "
-                    "send (over 64 KiB). Pass large data as files.",
-                    operation=_OP,
-                )
-            return (
-                ["bash", f"{runtime.JOB_DIR}/run.sh"],
-                {"run.sh": script.encode()},
-                None,
-            )
-        payload = json.dumps(
+            return json.dumps({"inputs": bound.inputs}).encode()
+        return json.dumps(
             {
                 "libs": libs_key,
                 "libs_dir": runtime.LIBS_DIR,
@@ -586,6 +566,41 @@ class Task:
                 "kwargs": bound.kwargs,
             }
         ).encode()
+
+    def _inputs_of(self, payload: bytes) -> dict[str, Any]:
+        """A run's inputs by name, read back from its payload."""
+        body = json.loads(payload)
+        if self.command is not None:
+            return dict(body["inputs"])
+        try:
+            bound = self.__signature__.bind(*body["args"], **body["kwargs"])
+        except TypeError:
+            return {"args": body["args"], "kwargs": body["kwargs"]}
+        return dict(bound.arguments)
+
+    def _attempt_files(
+        self, payload: bytes, key: str, libs_key: str | None
+    ) -> tuple[list[str], dict[str, bytes]]:
+        """One job's command and injected files. ``key`` and ``libs_key``
+        are full keys in the bucket.
+
+        A function's job is given a pointer to its payload with its
+        checksum, and refuses a payload that does not match. A script
+        gets its inputs in the script itself.
+        """
+        if self.command is not None:
+            inputs = json.loads(payload)["inputs"]
+            script = runtime.bash_script(self.command, inputs, key, libs_key)
+            if len(script.encode()) > INJECT_FILE_MAX_BYTES:
+                raise ValidationError(
+                    f"{self.name}'s script and inputs are too large to "
+                    "send (over 64 KiB). Pass large data as files.",
+                    operation=_OP,
+                )
+            return (
+                ["bash", f"{runtime.JOB_DIR}/run.sh"],
+                {"run.sh": script.encode()},
+            )
         pointer = {
             "root": runtime.MOUNT,
             "run": key,
@@ -595,7 +610,7 @@ class Task:
             "runner.py": runtime.RUNNER.encode(),
             "pointer.json": json.dumps(pointer).encode(),
         }
-        return ["python3", f"{runtime.JOB_DIR}/runner.py"], files, payload
+        return ["python3", f"{runtime.JOB_DIR}/runner.py"], files
 
 
 @dataclass(frozen=True)
@@ -705,13 +720,3 @@ def plain_name(text: object) -> str:
             f"The name {text!r} has no letters or digits.", operation=_OP
         )
     return plain
-
-
-@contextmanager
-def _staged(files: Mapping[str, bytes]) -> Iterator[Path]:
-    """The generated files on disk until the create has read them."""
-    with tempfile.TemporaryDirectory(prefix="ns-task-") as folder:
-        root = Path(folder)
-        for name, content in files.items():
-            (root / name).write_bytes(content)
-        yield root

@@ -143,8 +143,17 @@ class Job:
         name: str,
         transport: Transport,
         record: dict[str, object] | None = None,
+        resubmit: Resubmit | None = None,
+        budget: int = 0,
+        attempts: list[str] | None = None,
+        base_name: str | None = None,
     ) -> "Job":
-        """A handle to a job that exists. Its spec is not known."""
+        """A handle to a job that exists. Its spec is not known.
+
+        ``resubmit`` and ``budget`` let ``wait()`` create a preempted job
+        again; ``attempts`` are the earlier job ids, oldest first, and
+        count against the budget.
+        """
         job = cls.__new__(cls)
         job._spec = None
         job._id = job_id
@@ -152,10 +161,10 @@ class Job:
         job._transport = transport
         job._create_state = None
         job._record = record
-        job._resubmit = None
-        job._budget = 0
-        job._base_name = name
-        job._attempts = [job_id]
+        job._resubmit = resubmit
+        job._budget = budget if resubmit is not None else 0
+        job._base_name = base_name or name
+        job._attempts = list(attempts or [job_id])
         job._lock = threading.Lock()
         return job
 
@@ -474,8 +483,13 @@ class Job:
         transport: Transport | None,
         progress: Progress,
         idempotency_key: str | None,
+        resubmit: Resubmit | None = None,
     ) -> "Job":
-        """Send the create. Runs once per object."""
+        """Send the create. Runs once per object.
+
+        ``resubmit`` replaces how a preempted job is created again; by
+        default the same request is sent under a new name and key.
+        """
         spec = self.spec
         with self._lock:
             if self._id is not None:
@@ -510,7 +524,7 @@ class Job:
             self._base_name = name
             self._transport = chosen
             self._create_state = state
-            self._resubmit = submit if budget else None
+            self._resubmit = (resubmit or submit) if budget else None
             self._budget = budget
             self._attempts = [job_id]
         return self

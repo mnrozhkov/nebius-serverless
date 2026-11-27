@@ -30,7 +30,7 @@ import nebius_serverless as ns
 
     ---
 
-    `Task` and `TaskRun`: a Python function or a bash script as a job.
+    `Task` and `TaskRun`: a Python function or a bash script as a job; `ns.tasks`, reconnect to a run from its id.
 
 -   :material-account-key-outline: **[Session and auth](session.md)**
 
@@ -66,7 +66,7 @@ These imports are supported, and changes to them are called out in the release n
 
 | Import | For |
 | --- | --- |
-| `import nebius_serverless as ns`, and every name in `ns.__all__` | Everyone. `ns.JobSpec`, `ns.Task`, `ns.jobs.get(id)`, and the rest on these pages. |
+| `import nebius_serverless as ns`, and every name in `ns.__all__` | Everyone. `ns.JobSpec`, `ns.Task`, `ns.jobs.get(id)`, `ns.tasks.get(id)`, and the rest on these pages. |
 | `nebius_serverless.errors` | The same exceptions as `ns.Error` and its subclasses. |
 | `nebius_serverless.integrations.<name>` | An integration, such as `nebius_serverless.integrations.prefect`. |
 | `nebius_serverless.tasks.driver` | Writing an integration: the names in its `__all__`. |

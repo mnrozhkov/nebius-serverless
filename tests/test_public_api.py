@@ -98,12 +98,13 @@ def _describe(obj: Any) -> dict[str, Any]:
         return described
     if inspect.isroutine(obj):
         return {"kind": "function", "parameters": _parameters(obj)}
-    # ns.jobs and ns.endpoints: lookup by id.
+    # ns.jobs, ns.endpoints and ns.tasks: lookup by id.
     return {
         "kind": "lookup",
         "members": {
             name: _parameters(getattr(obj, name))
             for name in ("get", "get_async")
+            if hasattr(obj, name)
         },
     }
 

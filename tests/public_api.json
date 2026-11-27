@@ -555,6 +555,17 @@
       ]
     }
   },
+  "tasks": {
+    "kind": "lookup",
+    "members": {
+      "get": [
+        "run_id:POSITIONAL_OR_KEYWORD",
+        "bucket:KEYWORD_ONLY=None",
+        "profile:KEYWORD_ONLY=None",
+        "project:KEYWORD_ONLY=None"
+      ]
+    }
+  },
   "whoami": {
     "kind": "function",
     "parameters": [
