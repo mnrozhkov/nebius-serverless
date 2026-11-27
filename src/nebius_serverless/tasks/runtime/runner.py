@@ -35,8 +35,35 @@ def load(payload, root):
             target = getattr(target, part)
         return target
     scope = {"__name__": "__ns_task__"}
-    exec(compile(payload["source"], "<ns.Task source>", "exec"), scope)
+    exec(source_code(payload), scope)
     return scope[payload["qualname"]]
+
+
+def here():
+    return "%d.%d" % sys.version_info[:2]
+
+
+def check_version(payload):
+    """Warn in the job log when the source came from another Python."""
+    sent = payload.get("python")
+    if sent and sent != here():
+        sys.stderr.write(
+            "ns.Task: the function was sent from Python %s, and this job "
+            "runs Python %s.\n" % (sent, here())
+        )
+
+
+def source_code(payload):
+    """Compile the sent source. A syntax error names both versions."""
+    try:
+        return compile(payload["source"], "<ns.Task source>", "exec")
+    except SyntaxError as exc:
+        sent = payload.get("python") or "unknown"
+        raise SyntaxError(
+            "%s (line %s). The function was written on Python %s, and "
+            "this job runs Python %s: use an image with the same Python "
+            "version." % (exc.msg, exc.lineno, sent, here())
+        ) from None
 
 
 def main():
@@ -59,6 +86,7 @@ def main():
         if hashlib.sha256(raw).hexdigest() != pointer["sha256"]:
             raise RuntimeError("payload.json is not what was submitted.")
         payload = json.loads(raw)
+        check_version(payload)
         function = load(payload, root)
         value = function(*payload["args"], **payload["kwargs"])
         body = json.dumps({"ok": True, "value": value, "attempt": attempt})

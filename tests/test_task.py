@@ -1,8 +1,10 @@
 """ns.Task: inputs, naming, the job request, local_libs, and results."""
 
 import asyncio
+import hashlib
 import importlib
 import inspect
+import json
 import shutil
 import subprocess
 import sys
@@ -805,3 +807,46 @@ def test_a_dropped_run_never_starts(
 def test_the_bucket_is_named_after_the_project() -> None:
     name = storage_module.bucket_name("project-e00abc")
     assert name == "ns-workspace-e00abc"
+
+
+def test_a_function_from_a_notebook_cell_is_sent_as_source(
+    backend: FakeBackend, transport: RunningTransport
+) -> None:
+    """IPython keeps a cell's source readable, so the source route works."""
+    pytest.importorskip("IPython")
+    from IPython.core.interactiveshell import InteractiveShell
+
+    shell = InteractiveShell.instance()
+    try:
+        cell = shell.run_cell(
+            "def triple(x):\n    import math\n    return math.prod([3, x])\n"
+        )
+        assert cell.success
+        function = shell.user_ns["triple"]
+        task = ns.Task(function, image=IMAGE)
+        assert task._module is None
+        assert "return math.prod" in str(task._source)
+        run = task.submit(4)
+        assert run.result() == 12
+    finally:
+        InteractiveShell.clear_instance()
+    record = json.loads(backend.get(BUCKET, f"{run.id}/run.json") or b"{}")
+    definition = record["definition"]
+    assert definition["source_sha256"] == hashlib.sha256(
+        str(task._source).encode()
+    ).hexdigest()
+    payload = json.loads(backend.get(BUCKET, f"{run.id}/payload.json") or b"")
+    assert payload["python"] == "%d.%d" % sys.version_info[:2]
+
+
+def test_a_notebook_function_using_another_cell_is_refused() -> None:
+    pytest.importorskip("IPython")
+    from IPython.core.interactiveshell import InteractiveShell
+
+    shell = InteractiveShell.instance()
+    try:
+        shell.run_cell("FACTOR = 3\n\ndef scaled(x):\n    return FACTOR * x\n")
+        with pytest.raises(ns.ValidationError, match="FACTOR"):
+            ns.Task(shell.user_ns["scaled"], image=IMAGE)
+    finally:
+        InteractiveShell.clear_instance()

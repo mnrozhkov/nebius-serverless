@@ -16,6 +16,7 @@ import hashlib
 import inspect
 import json
 import re
+import sys
 import textwrap
 import threading
 from collections.abc import Callable, Mapping, Sequence
@@ -437,6 +438,11 @@ class Task:
             "module": self._module,
             "qualname": self._qualname,
             "source": self._source,
+            "source_sha256": (
+                None
+                if self._source is None
+                else hashlib.sha256(self._source.encode()).hexdigest()
+            ),
             "command": self.command,
             "inputs": list(self.inputs),
             "parameters": _describe_signature(self.__signature__),
@@ -562,6 +568,8 @@ class Task:
                 "module": self._module,
                 "qualname": self._qualname,
                 "source": self._source,
+                # The job compares it with its own python3.
+                "python": "%d.%d" % sys.version_info[:2],
                 "args": bound.args,
                 "kwargs": bound.kwargs,
             }

@@ -38,6 +38,10 @@ A function is sent in one of two ways:
 - **By name.** When it comes from a package in `local_libs`, the package is uploaded and the job imports the function. It must be defined at module level.
 - **As source.** Otherwise its source is sent on its own. It must be self-contained: imports and helpers go inside its body, and it must not use names from the surrounding file, decorators, or variables of an enclosing function. Type annotations are dropped, so they may name anything.
 
+**A function defined in a notebook cell** is sent as source. IPython keeps a cell's source readable, so this works in Jupyter. The same rule applies: a function that uses names from other cells is refused, with the names it uses.
+
+The source is parsed here and run by the image's `python3`. The job compares the two versions: when they differ, it prints a warning to the job log, and when the source does not compile there, the run fails with `TaskFailed` whose `remote_traceback` names both versions. Use an image with the same Python minor version as your machine. Each run's record keeps a SHA-256 of the source it sent, as `definition.source_sha256` in `run.json`.
+
 The function gets its arguments as JSON values and must return a JSON value.
 
 ### Scripts

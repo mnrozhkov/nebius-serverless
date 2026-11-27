@@ -53,6 +53,7 @@ nebius_serverless = ["py.typed"]
 
 [dependency-groups]
 dev = [
+    "ipython==9.19.1 ; python_full_version >= '3.11'",
     "mypy==2.4.1",
     "prefect==3.9.5 ; python_full_version >= '3.11'",
     "pytest==9.0.3",
